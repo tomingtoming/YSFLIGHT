@@ -8899,6 +8899,11 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			else
 			{
 				++svrSta.startServerRetryCount;
+#ifdef __EMSCRIPTEN__
+				// The browser can never start listening; skip the 90-second
+				// retry cycle and terminate server mode immediately.
+				svrSta.startServerRetryCount=6;
+#endif
 				if(6<=svrSta.startServerRetryCount)
 				{
 					svrSta.fatalError=FsServerRunLoop::SERVER_FATAL_CANNOT_START;
