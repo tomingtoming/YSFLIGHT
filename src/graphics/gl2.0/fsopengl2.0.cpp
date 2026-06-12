@@ -152,8 +152,8 @@ static void FsSetBmpTexture(GLuint texId,const YsBitmap &bmp,YSBOOL repeat)
 	}
 	else
 	{
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP);
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 	}
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -161,7 +161,7 @@ static void FsSetBmpTexture(GLuint texId,const YsBitmap &bmp,YSBOOL repeat)
 	glTexImage2D
 	    (GL_TEXTURE_2D,
 	     0,
-	     4,
+	     GL_RGBA, // "4" is a GL1 relic; invalid in GLES2/WebGL.
 	     bmp.GetWidth(),
 	     bmp.GetHeight(),
 	     0,
@@ -650,10 +650,12 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	// Anti-aliasing options >>
 	/*
+#ifndef __EMSCRIPTEN__
 	glEnable(GL_POINT_SMOOTH);
 	glEnable(GL_LINE_SMOOTH);
 	glEnable(GL_POLYGON_SMOOTH);
 	glHint(GL_POLYGON_SMOOTH_HINT,GL_NICEST);
+#endif
 	*/
 	// Anti-aliasing options <<
 
@@ -1084,6 +1086,8 @@ void FsDrawTitleBmp(const YsBitmap &bmp,YSBOOL tile)
 	glBindTexture(GL_TEXTURE_2D,texId[0]);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);  // NPOT-safe for WebGL1
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,bmpWid,bmpHei,0,GL_RGBA,GL_UNSIGNED_BYTE,bmpPtr);
 
 	if(tile==YSTRUE)
@@ -1126,7 +1130,28 @@ void FsDrawBmp(const YsBitmap &bmp,int x,int y)
 	YsGLSLBitmapRenderer *renderer=YsGLSLSharedBitmapRenderer();
 	YsGLSLUseBitmapRenderer(renderer);
 
+	// The bitmap (system-font text) carries alpha; without blending it
+	// shows up as a solid rectangle.
+	const GLboolean blendWasEnabled=glIsEnabled(GL_BLEND);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+
+	// 2D overlay text must draw unconditionally.  The cockpit/canopy pass
+	// leaves the stencil test in a state that can reject these pixels
+	// (driver-dependent), which blanked the messages.
+	const GLboolean stencilWasEnabled=glIsEnabled(GL_STENCIL_TEST);
+	glDisable(GL_STENCIL_TEST);
+
 	YsGLSLRenderRGBABitmap2D(renderer,x,y,YSGLSL_HALIGN_LEFT,YSGLSL_VALIGN_TOP,bmpWid,bmpHei,rgba);
+
+	if(GL_TRUE==stencilWasEnabled)
+	{
+		glEnable(GL_STENCIL_TEST);
+	}
+	if(GL_TRUE!=blendWasEnabled)
+	{
+		glDisable(GL_BLEND);
+	}
 
 	YsGLSLEndUseBitmapRenderer(renderer);
 

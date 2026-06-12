@@ -366,8 +366,8 @@ void FsSolidClouds::SetUpCloudPerFrame(void)
 
 		glBindTexture(GL_TEXTURE_2D,fsCloudParticleTex[i]);
 
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP);
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -375,7 +375,7 @@ void FsSolidClouds::SetUpCloudPerFrame(void)
 		glTexImage2D
 		    (GL_TEXTURE_2D,
 		     0,
-		     4,
+		     GL_RGBA, // "4" is a GL1 relic; invalid in GLES2/WebGL.
 		     cloudParticleTexBuf[i].GetWidth(),
 		     cloudParticleTexBuf[i].GetHeight(),
 		     0,
