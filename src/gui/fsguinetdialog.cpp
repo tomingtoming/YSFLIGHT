@@ -26,6 +26,16 @@
 
 #include "fsguinetdialog.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// ysflight-web: read the Room ID to pre-fill the client dialog from
+// Module.ysfwJoinRoom (set by the web shell from the ?join=<id> URL param).
+EM_JS(void, fsWebGetJoinRoom, (char *buf, int cap), {
+	var v = (typeof Module !== 'undefined' && Module.ysfwJoinRoom) ? String(Module.ysfwJoinRoom) : '';
+	stringToUTF8(v, buf, cap);
+});
+#endif
+
 
 
 void FsGuiStartServerDialog::Make(const class FsWorld *world,const FsNetConfig &netcfg)
@@ -53,11 +63,17 @@ void FsGuiStartServerDialog::Make(const class FsWorld *world,const FsNetConfig &
 	userNameTxt->SetText(netcfg.defUser);
 	userNameTxt->SelectAll();
 
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: the web build hosts over WebRTC, so there is no TCP port to
+	// configure.  Hide the port field (StartNetServerMode gets a dummy port).
+	portTxt=nullptr;
+#else
 	YsString portStr;
 	portStr.Printf("%d",netcfg.portNumber);
 	portTxt=AddTextBox(0,FSKEY_NULL,FSGUI_NET_HOSTPORT,portStr,16,YSTRUE);
 	portTxt->SetTextType(FSGUI_INTEGER);
 	portTxt->SelectAll();
+#endif
 
 	fldListBox=AddListBox(3,FSKEY_NULL,FSGUI_NET_FIELD,fldList.GetN(),fldList,5,32,YSTRUE);
 	fldListBox->SelectByString(netcfg.defField);
@@ -168,6 +184,22 @@ void FsGuiStartClientDialog::Make(const FsNetConfig &netcfg)
 	userNameTxt=AddTextBox(MkId("username"),FSKEY_NULL,FSGUI_NET_USERNAME,netcfg.defUser,32,YSTRUE);
 	userNameTxt->SetLengthLimit(200);
 	userNameTxt->SelectAll();
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: clients join by 8-digit Room ID over WebRTC (no hostname or
+	// TCP port).  Re-label the address field as "Room ID", drop the port and the
+	// host-history list, and pre-fill from ?join=<id> when present.
+	{
+		char roomBuf[16];
+		roomBuf[0]=0;
+		fsWebGetJoinRoom(roomBuf,(int)sizeof(roomBuf));
+		hostAddrTxt=AddTextBox(MkId("roomid"),FSKEY_NULL,"Room ID",roomBuf,16,YSTRUE);
+		hostAddrTxt->SetTextType(FSGUI_INTEGER);
+		hostAddrTxt->SetLengthLimit(8);
+		hostAddrTxt->SelectAll();
+	}
+	portTxt=nullptr;
+	hostHist=nullptr;
+#else
 	hostAddrTxt=AddTextBox(MkId("hostname"),FSKEY_NULL,FSGUI_NET_HOSTNAME,netcfg.defHost,32,YSTRUE);
 	hostAddrTxt->SelectAll();
 
@@ -191,6 +223,7 @@ void FsGuiStartClientDialog::Make(const FsNetConfig &netcfg)
 		histStr[i]=hist.addrLog[i];
 	}
 	hostHist=AddDropList(4,FSKEY_NULL,"",histStr.GetN(),histStr,12,32,32,YSTRUE);
+#endif
 
 	Fit();
 }
@@ -301,8 +334,13 @@ void FsGuiNetConfigDialog::MakeDialog(void)
 
 void FsGuiNetConfigDialog::MakeGeneralDialog(void)
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: no TCP port on the web build (WebRTC only); hide the field.
+	networkPort=nullptr;
+#else
 	networkPort=AddTextBox(0,FSKEY_NULL,FSGUI_NETCFG_PORT,"",32,YSTRUE);
 	networkPort->SetTextType(FSGUI_INTEGER);
+#endif
 	userName=AddTextBox(0,FSKEY_NULL,FSGUI_NETCFG_USERNAME,"",32,YSTRUE);
 	saveChatLog=AddTextButton(0,FSKEY_NULL,FSGUI_CHECKBOX,FSGUI_NETCFG_CHATLOG,YSTRUE);
 }
@@ -486,7 +524,7 @@ void FsGuiNetConfigDialog::InitializeDialog(const FsWorld *world,const FsNetConf
 {
 	this->world=world;
 
-	networkPort->SetInteger(cfg.portNumber);
+	if(nullptr!=networkPort) networkPort->SetInteger(cfg.portNumber);
 	userName->SetText(cfg.defUser);
 	saveChatLog->SetCheck(cfg.saveChatLog);
 
@@ -600,7 +638,7 @@ void FsGuiNetConfigDialog::RetrieveConfig(FsNetConfig &cfg,const FsWorld *)
 	YsString username;
 	this->userName->GetText(username);
 
-	cfg.portNumber=networkPort->GetInteger();
+	if(nullptr!=networkPort) cfg.portNumber=networkPort->GetInteger();
 	strcpy(cfg.defUser,username);
 	cfg.saveChatLog=saveChatLog->GetCheck();
 

@@ -6965,6 +6965,11 @@ YSRESULT FsSocketClient::ReceiveListUser(unsigned char dat[])
 
 YSRESULT FsSocketClient::ReceiveTextMessage(unsigned char dat[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; discard inbound chat.
+	(void)dat;
+	return YSOK;
+#endif
 	int i;
 	char *ptr,prv;
 
@@ -7915,6 +7920,7 @@ void FsGuiServerDialog::MakeDialog(FsSimulation *sim,FsSocketServer *server)
 
 
 
+#ifndef __EMSCRIPTEN__
 	AddStaticText(0,FSKEY_NULL,"Port:",YSTRUE);
 	portTxt=AddStaticText(0,FSKEY_NULL,"9999",5,1,YSFALSE);
 	{
@@ -7922,6 +7928,10 @@ void FsGuiServerDialog::MakeDialog(FsSimulation *sim,FsSocketServer *server)
 		str.Printf("%d",server->netcfg->portNumber);
 		portTxt->SetText(str);
 	}
+#else
+	// ysflight-web: WebRTC host has no TCP port; hide the Port row.
+	portTxt=nullptr;
+#endif
 
 
 	AddStaticText(0,FSKEY_NULL,"IFF",YSTRUE);
@@ -8316,7 +8326,9 @@ static void FsPrintServerMenu(
 			fsConsole.Printf("Cannot obtain host address. Error in gethostbyname()\n");
 		}
 
+#ifndef __EMSCRIPTEN__
 		fsConsole.Printf("PORT=%d",port);
+#endif
 	}
 	else
 	{

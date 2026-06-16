@@ -13740,6 +13740,12 @@ void FsSimulation::NetWeaponLaunch(const FsWeaponRecord &rec)
 
 void FsSimulation::SendNetChatMessage(const char msg[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build (no chat UI, no chat
+	// traffic).  Swallow any attempt to send a chat message.
+	(void)msg;
+	return;
+#endif
 	if(0!=msg[0])
 	{
 		YsString str;
@@ -13804,6 +13810,10 @@ void FsSimulation::CloseVehicleChangeDialog(void)
 
 void FsSimulation::OpenChatDialog(void)
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; never open the dialog.
+	return;
+#endif
 	if(NULL!=chatDlg)
 	{
 		SetCurrentInFlightDialog(chatDlg);
