@@ -1,5 +1,9 @@
 #include <memory>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #define FSSIMPLEWINDOW_DONT_INCLUDE_OPENGL_HEADERS
 #include <fssimplewindow.h>
 
@@ -1352,6 +1356,20 @@ void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 
 	runModeStack.Last().runMode=runMode;
 	runModeStack.Last().runModeCounter=0;
+
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: tell the web shell whether we are flying (vs in a menu) so it
+	// can hide the Room/invite overlay and the connection badge during flight.
+	{
+		const int inFlight=
+			(YSRUNMODE_FLY_REGULAR==runMode || YSRUNMODE_FLY_DEMOMODE==runMode ||
+			 YSRUNMODE_FLY_CLIENTMODE==runMode || YSRUNMODE_FLY_SERVERMODE==runMode) ? 1 : 0;
+		EM_ASM({
+			globalThis.ysfwRtc = globalThis.ysfwRtc || {};
+			globalThis.ysfwRtc.inFlight = !!$0;
+		}, inFlight);
+	}
+#endif
 
 	// Actually wait until all buttons, keys are clear.
 	FsPollDevice();

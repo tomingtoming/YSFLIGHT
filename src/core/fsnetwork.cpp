@@ -1822,6 +1822,11 @@ YSRESULT FsSocketServer::BroadcastChatTextMessage(const char txt[])
 
 YSRESULT FsSocketServer::BroadcastTextMessage(const char txt[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; drop outbound chat.
+	(void)txt;
+	return YSOK;
+#endif
 	YSSIZE_T packetLength;
 	unsigned char dat[256];
 	FsSetInt(dat  ,FSNETCMD_TEXTMESSAGE);
@@ -5687,6 +5692,11 @@ YSRESULT FsSocketClient::SendGndCmd(int idOnCli,const char cmd[])
 
 YSRESULT FsSocketClient::SendTextMessage(const char txt[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; drop outbound chat.
+	(void)txt;
+	return YSOK;
+#endif
 
 	unsigned char dat[256];
 	FsSetInt(dat  ,FSNETCMD_TEXTMESSAGE);
@@ -7573,7 +7583,9 @@ static YSRESULT FsNetworkStandby
 				break;
 			case FSNCC_COMMON_INLINECHAT:
 				escCount=0;
+#ifndef __EMSCRIPTEN__
 				choosingMode=10;  // Typing chat message
+#endif
 				break;
 			case FSNCC_COMMON_WHOKILLEDME:
 				{
