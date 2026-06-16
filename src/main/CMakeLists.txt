@@ -595,9 +595,8 @@ elseif(EMSCRIPTEN)
 	target_link_options(ysflight${BITNESS}_gl2 PRIVATE
 		-sFULL_ES2=1
 		-sASSERTIONS=1
-		-pthread
-		-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency+4
-		-sDEFAULT_PTHREAD_STACK_SIZE=1048576
+		# Single-threaded web build: see src/CMakeLists.txt for why -pthread
+		# (and -sPTHREAD_POOL_SIZE / -sDEFAULT_PTHREAD_STACK_SIZE) are omitted.
 		-sALLOW_MEMORY_GROWTH=1
 		-sSTACK_SIZE=8388608
 		-sFORCE_FILESYSTEM=1

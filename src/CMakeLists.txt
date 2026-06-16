@@ -20,10 +20,17 @@ endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-if(EMSCRIPTEN)
-	add_compile_options(-pthread)
-	add_link_options(-pthread)
-endif()
+# Web build is single-threaded on purpose.  With -pthread (and no
+# -sPROXY_TO_PTHREAD) main() and the rAF loop run on the browser main thread,
+# and YsThreadPool::Run blocks it on a condition_variable while worker threads
+# run the parallel sim tasks.  Blocking the browser main thread freezes rAF and
+# the whole page whenever a worker is slow/stalled (heavy collision step, shared
+# memory growth, GC, scheduling) -- the reported hang.  Without -pthread the
+# __EMSCRIPTEN_PTHREADS__ inline fallbacks in ysclass11 (YsThreadPool,
+# YsRunTaskParallel) run tasks inline on the main thread instead: never faster
+# than native, but it never wedges the page.  Re-enabling threads requires
+# moving the loop off the main thread (-sPROXY_TO_PTHREAD + OffscreenCanvas).
+# (No -pthread also means SharedArrayBuffer / COOP+COEP are no longer required.)
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../public/src)
 	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../public/src public)
