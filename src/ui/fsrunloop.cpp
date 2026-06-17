@@ -1365,8 +1365,10 @@ void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 			(YSRUNMODE_FLY_REGULAR==runMode || YSRUNMODE_FLY_DEMOMODE==runMode ||
 			 YSRUNMODE_FLY_CLIENTMODE==runMode || YSRUNMODE_FLY_SERVERMODE==runMode) ? 1 : 0;
 		EM_ASM({
-			globalThis.ysfwRtc = globalThis.ysfwRtc || {};
-			globalThis.ysfwRtc.inFlight = !!$0;
+			// Use a dedicated global; do NOT touch globalThis.ysfwRtc, because
+			// jsRtcInit early-returns if ysfwRtc already exists, and clobbering it
+			// here would drop its methods (e.g. overlay) -> "R.overlay is not a function".
+			globalThis.ysfwInFlight = !!$0;
 		}, inFlight);
 	}
 #endif
