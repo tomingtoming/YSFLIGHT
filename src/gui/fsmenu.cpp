@@ -201,7 +201,14 @@ void FsGuiMainMenu::Make(void)
 	{
 		auto netMenu=AddTextItem(0,FSKEY_N,FSMENU_NET)->AddSubMenu();
 		netMenu->AddTextItem(MkId("network/server"),FSKEY_S,FSMENU_NET_SERVER)->BindCallBack(&FsGuiMainCanvas::Net_StartServerMode,canvas);
+#ifndef __EMSCRIPTEN__
+		// ysflight-web (v2 M8): the in-engine "connect to server" (client) entry is
+		// closed.  Joining is pre-boot ONLY -- an invite link / shell Room-ID sets
+		// the -client command parameter (fsmain.cpp), so the add-on-pack sync
+		// completes during the boot gate before main() and there is no in-menu path
+		// to start a client session that would bypass it.  Hosting stays available.
 		netMenu->AddTextItem(MkId("network/client"),FSKEY_C,FSMENU_NET_CLIENT)->BindCallBack(&FsGuiMainCanvas::Net_StartClientMode,canvas);
+#endif
 		netMenu->AddTextItem(MkId("network/config"),FSKEY_O,FSMENU_NET_CONFIG)->BindCallBack(&FsGuiMainCanvas::Net_Config,canvas);
 	}
 
