@@ -38,6 +38,7 @@
 #include "fsworld.h"
 #include "fsexistence.h"
 #include "fssimulation.h"
+#include "fssimextension.h"
 #include "platform/common/fswindow.h"
 #include "graphics/common/fsopengl.h"
 #include "graphics/common/fsfontrenderer.h"
@@ -81,6 +82,65 @@ void Initialize(void)
 }
 
 extern FsScreenMessage fsConsole;
+
+// ---------------------------------------------------------------------------
+// Sample "experience" authored entirely OUTSIDE the engine core.
+//
+// This proves the FsSimExtensionBase seam lets you add gameplay/behaviors
+// without modifying YSFLIGHT itself: the engine knows nothing about this class;
+// the host (this harness) instantiates it and attaches it with
+// FsSimulation::RegisterExtension().  "Altitude Watch" tracks the player's
+// altitude band over a fixed sim-time budget and then ends the run, exercising
+// StartSimulation / OnInterval / MustTerminate / EndSimulation.
+// ---------------------------------------------------------------------------
+class HarnessAltitudeChallenge : public FsSimExtensionBase
+{
+public:
+	double timeLimit=20.0;
+	long long intervalCount=0;
+	double maxAlt=-1.0e30,minAlt=1.0e30;
+	double startTime=0.0;
+
+	const char *GetIdent(void) const override { return "HARNESSALTWATCH"; }
+
+	YsArray <YsString> Serialize(const FsSimulation *) override
+	{
+		YsArray <YsString> a;
+		a.Append("EXTENSIO");
+		a.Append(GetIdent());
+		return a;
+	}
+	YSRESULT ProcessCommand(FsSimulation *,const YsConstArrayMask <YsString> &) override
+	{
+		return YSOK;
+	}
+
+	void StartSimulation(FsSimulation *sim) override
+	{
+		startTime=sim->CurrentTime();
+		printf("[experience] StartSimulation: Altitude-Watch begins (budget %.1fs)\n",timeLimit);
+	}
+	void OnInterval(FsSimulation *sim,double dt) override
+	{
+		++intervalCount;
+		const FsAirplane *p=sim->GetPlayerAirplane();
+		if(NULL!=p)
+		{
+			double y=p->GetPosition().y();
+			if(y>maxAlt){maxAlt=y;}
+			if(y<minAlt){minAlt=y;}
+		}
+	}
+	YSBOOL MustTerminate(const FsSimulation *sim) const override
+	{
+		return (sim->CurrentTime()-startTime>=timeLimit ? YSTRUE : YSFALSE);
+	}
+	void EndSimulation(FsSimulation *sim) override
+	{
+		printf("[experience] EndSimulation: OnInterval fired %lld times, altitude band=[%.1f, %.1f] m\n",
+		       intervalCount,minAlt,maxAlt);
+	}
+};
 
 int main(int ac,char *av[])
 {
@@ -209,6 +269,54 @@ int main(int ac,char *av[])
 	}
 	air->iff=FS_IFF0;
 	world->SettleAirplane(*air,startPos.Txt());
+
+	// --- Optional: run with a host-supplied "experience" (YSF_EXPERIENCE) ----
+	// Demonstrates adding gameplay via FsSimExtensionBase without touching the
+	// engine.  Same fixed-dt loop; OnInterval fires automatically from inside
+	// SimulateOneStep for every registered extension, while the host drives the
+	// StartSimulation / MustTerminate / EndSimulation lifecycle.
+	if(NULL!=getenv("YSF_EXPERIENCE"))
+	{
+		FsSimulation *sim=world->GetSimulation();
+		auto exp=std::make_shared<HarnessAltitudeChallenge>();
+		sim->RegisterExtension(exp);
+		exp->StartSimulation(sim);
+
+		FILE *fp=fopen(csvPath,"w");
+		if(NULL==fp){ printf("ERROR: cannot open '%s'.\n",csvPath); return 1; }
+		fprintf(fp,"step,t,x,y,z,heading,pitch,bank\n");
+
+		const double dt=0.025;
+		double t=0.0;
+		int i=0;
+		for(; i<nSteps; i++)
+		{
+			world->SimulateOneStep(dt,YSFALSE,YSTRUE,YSFALSE,YSFALSE,FSUSC_ENABLE,YSFALSE);
+			t+=dt;
+			FsAirplane *p=world->GetPlayerAirplane();
+			if(NULL!=p)
+			{
+				const YsVec3 &pos=p->GetPosition();
+				const YsAtt3 &a=p->GetAttitude();
+				fprintf(fp,"%d,%.6f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n",
+				        i,t,pos.x(),pos.y(),pos.z(),a.h(),a.p(),a.b());
+			}
+			if(exp->MustTerminate(sim)==YSTRUE)
+			{
+				printf("[experience] MustTerminate -> ending flight at step %d (t=%.3fs)\n",i,t);
+				++i;
+				break;
+			}
+		}
+		exp->EndSimulation(sim);
+		fclose(fp);
+		printf("Experience run: wrote %d steps to %s\n",i,csvPath);
+
+		world->TerminateSimulation();
+		FsFreePlugIn();
+		FsCloseWindow();
+		return 0;
+	}
 
 	// --- Deterministic fixed-step loop --------------------------------------
 	FILE *fp=fopen(csvPath,"w");
