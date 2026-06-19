@@ -591,6 +591,10 @@ public:
 	     YSBOOL demoMode,YSBOOL record,YSBOOL showTimer,YSBOOL networkStandby,FSUSERCONTROL userControl,
 	     YSBOOL showTimeMarker);
 	void DecideAllViewPoint(const double dt);
+	/*! Render-side view/camera preparation factored out of SimulateOneStep.
+	    Mutates only view state; no feedback into flight physics.  Intended to be
+	    called from the run loop between Update and the const Draw. */
+	void PrepareRenderView(const double dt);
 	void AfterSimulation(void);
 
 

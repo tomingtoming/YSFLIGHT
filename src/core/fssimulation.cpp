@@ -1714,6 +1714,7 @@ void FsSimulation::RunSimulationOneStep(FsSimulation::FSSIMULATIONSTATE &simStat
 				}
 			}
 			SimulateOneStep(passedTime,YSFALSE,recordFlight,YSFALSE,YSFALSE,userControl,YSFALSE);
+			PrepareRenderView(passedTime); // post-update, pre-draw view preparation
 
 			for(auto addOnPtr : addOnList)
 			{
@@ -2003,6 +2004,7 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 
 				prevMode=replayMode;
 				SimulateOneStep(passedTime,YSFALSE,YSFALSE,YSTRUE,YSFALSE,FSUSC_ENABLE/*YSTRUE*/,YSFALSE);
+				PrepareRenderView(passedTime); // post-update, pre-draw view preparation
 				SimCheckEndOfFlightRecord();
 
 				if(passedTime<YsTolerance)
@@ -2094,6 +2096,7 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 				passedTime=PassedTime();
 
 				SimulateOneStep(passedTime,YSFALSE,YSTRUE,YSFALSE,YSFALSE,FSUSC_ENABLE /*YSTRUE*/,YSFALSE);
+				PrepareRenderView(passedTime); // post-update, pre-draw view preparation
 
 				if(endTime>YsTolerance && currentTime>endTime)
 				{
@@ -2707,24 +2710,10 @@ void FsSimulation::SimulateOneStep(
 	#ifdef CRASHINVESTIGATION
 		printf("S8\n");
 	#endif
-
-		needRedraw=YSTRUE;
-
-		if(focusAir==NULL)
-		{
-			focusAir=GetPlayerAirplane();
-			if(focusAir==NULL)
-			{
-				focusAir=FindNextAirplane(NULL);
-			}
-		}
-
-		if(CheckNoExtAirView()==YSTRUE)  // 2006/06/11
-		{
-			focusAir=GetPlayerAirplane();
-		}
-
-		DecideAllViewPoint(passedTime);
+		// View/camera preparation (PrepareRenderView) has been hoisted out of the
+		// physics step to the sim-mode drivers (RunSimulationOneStep /
+		// RunReplaySimulationOneStep), so SimulateOneStep is now pure simulation
+		// update with no view-state side effects.
 	}
 
 #ifdef CRASHINVESTIGATION
@@ -2736,6 +2725,36 @@ void FsSimulation::SimulateOneStep(
 #ifdef CRASHINVESTIGATION
 	printf("S-1\n");
 #endif
+}
+
+void FsSimulation::PrepareRenderView(const double dt)
+{
+	// Render-side view/camera preparation, factored out of SimulateOneStep and
+	// now called by the sim-mode drivers (RunSimulationOneStep /
+	// RunReplaySimulationOneStep) right after the physics update, i.e. between
+	// Update(dt) and the const Draw.  This mutates only view state (focusAir,
+	// needRedraw, and the ActualViewMode camera matrices / fog) -- it has NO
+	// feedback into flight physics.  That is verified by the characterization
+	// harness, which calls FsWorld::SimulateOneStep directly (bypassing these
+	// drivers) and therefore never runs PrepareRenderView, yet still produces a
+	// byte-identical player trajectory.
+	needRedraw=YSTRUE;
+
+	if(focusAir==NULL)
+	{
+		focusAir=GetPlayerAirplane();
+		if(focusAir==NULL)
+		{
+			focusAir=FindNextAirplane(NULL);
+		}
+	}
+
+	if(CheckNoExtAirView()==YSTRUE)  // 2006/06/11
+	{
+		focusAir=GetPlayerAirplane();
+	}
+
+	DecideAllViewPoint(dt);
 }
 
 void FsSimulation::DecideAllViewPoint(const double dt)
