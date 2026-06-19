@@ -142,6 +142,36 @@ public:
 	}
 };
 
+// ---------------------------------------------------------------------------
+// Render snapshot: a backend-agnostic, GL-free description of what to draw this
+// frame for one aircraft -- model identifier, world transform (position +
+// attitude), and the animation scalars that FsAirplaneProperty::SetupVisual
+// feeds into the DNM (gear, flap, spoiler, control surfaces, throttle, ...).
+//
+// This is exactly the data a retained-mode renderer (Three.js, a Rust/wgpu
+// backend, ...) needs: load the model once by id, then per frame set the node
+// transform and joint states from this snapshot.  It is produced from public
+// getters only -- the engine is not modified, and because it is pure data the
+// characterization harness can dump it and verify determinism.
+// ---------------------------------------------------------------------------
+static void WriteRenderSnapshot(FILE *fp,int step,double t,const FsAirplane *p)
+{
+	const YsVec3 &pos=p->GetPosition();
+	const YsAtt3 &att=p->GetAttitude();
+	const FsAirplaneProperty &pr=p->Prop();
+	fprintf(fp,
+	    "{\"step\":%d,\"t\":%.3f,\"id\":\"%s\","
+	    "\"pos\":[%.3f,%.3f,%.3f],\"att\":[%.6f,%.6f,%.6f],"
+	    "\"gear\":%.3f,\"flap\":%.3f,\"spoiler\":%.3f,\"vgw\":%.3f,"
+	    "\"elevator\":%.4f,\"aileron\":%.4f,\"rudder\":%.4f,"
+	    "\"throttle\":%.4f,\"thrustRev\":%.4f,\"brake\":%d}\n",
+	    step,t,p->GetIdentifier(),
+	    pos.x(),pos.y(),pos.z(),att.h(),att.p(),att.b(),
+	    pr.GetLandingGear(),pr.GetFlap(),pr.GetSpoiler(),pr.GetControlVgw(),
+	    pr.GetElevator(),pr.GetAileron(),pr.GetRudder(),
+	    pr.GetThrottle(),pr.GetThrustReverser(),(YSTRUE==pr.GetBrake()?1:0));
+}
+
 int main(int ac,char *av[])
 {
 	ForceLink();
@@ -269,6 +299,36 @@ int main(int ac,char *av[])
 	}
 	air->iff=FS_IFF0;
 	world->SettleAirplane(*air,startPos.Txt());
+
+	// --- Optional: dump a backend-agnostic render snapshot (YSF_RENDER_SNAPSHOT)
+	// Proves the "sim -> render snapshot -> (any) renderer" seam: GL-free draw
+	// data extracted from public getters, the input a Three.js/TS renderer would
+	// consume.  Output is JSON-lines; deterministic, so the harness can verify it.
+	if(NULL!=getenv("YSF_RENDER_SNAPSHOT"))
+	{
+		FILE *fp=fopen(csvPath,"w");
+		if(NULL==fp){ printf("ERROR: cannot open '%s'.\n",csvPath); return 1; }
+
+		const double dt=0.025;
+		double t=0.0;
+		for(int i=0; i<nSteps; i++)
+		{
+			world->SimulateOneStep(dt,YSFALSE,YSTRUE,YSFALSE,YSFALSE,FSUSC_ENABLE,YSFALSE);
+			t+=dt;
+			FsAirplane *p=world->GetPlayerAirplane();
+			if(NULL!=p)
+			{
+				WriteRenderSnapshot(fp,i,t,p);
+			}
+		}
+		fclose(fp);
+		printf("Render snapshot: wrote %d frames to %s\n",nSteps,csvPath);
+
+		world->TerminateSimulation();
+		FsFreePlugIn();
+		FsCloseWindow();
+		return 0;
+	}
 
 	// --- Optional: run with a host-supplied "experience" (YSF_EXPERIENCE) ----
 	// Demonstrates adding gameplay via FsSimExtensionBase without touching the
