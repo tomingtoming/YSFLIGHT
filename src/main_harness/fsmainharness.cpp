@@ -143,6 +143,53 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// Generic callback-driven extension: closes the seam-2 gap that experiences
+// must be authored as C++ subclasses.  One concrete class delegates every hook
+// to host-supplied callbacks, so an experience becomes a set of functions handed
+// in at runtime -- no subclass, no edit to RegisterKnownExtension, no engine
+// rebuild for the *shape* of a new experience.
+//
+// This is exactly the architecture of a JS/TS bridge: in the Emscripten build
+// these std::function slots forward to JS functions (emscripten::val / EM_ASM),
+// so a web developer authors the experience in TypeScript while this C++ class
+// is the single, fixed forwarding shim.  Here, native lambdas stand in for the
+// JS callbacks so the pattern is verifiable headlessly.
+// ---------------------------------------------------------------------------
+class FsSimExtension_Callback : public FsSimExtensionBase
+{
+public:
+	YsString ident;
+	std::function <void(FsSimulation *)> onStart;
+	std::function <void(FsSimulation *,double)> onInterval;
+	std::function <bool(const FsSimulation *)> mustTerminate;
+	std::function <void(FsSimulation *)> onEnd;
+
+	const char *GetIdent(void) const override { return ident.Txt(); }
+	YsArray <YsString> Serialize(const FsSimulation *) override
+	{
+		YsArray <YsString> a; a.Append("EXTENSIO"); a.Append(ident); return a;
+	}
+	YSRESULT ProcessCommand(FsSimulation *,const YsConstArrayMask <YsString> &) override { return YSOK; }
+
+	void StartSimulation(FsSimulation *sim) override { if(onStart){ onStart(sim); } }
+	void OnInterval(FsSimulation *sim,double dt) override { if(onInterval){ onInterval(sim,dt); } }
+	YSBOOL MustTerminate(const FsSimulation *sim) const override
+	{
+		return (mustTerminate && mustTerminate(sim)) ? YSTRUE : YSFALSE;
+	}
+	void EndSimulation(FsSimulation *sim) override { if(onEnd){ onEnd(sim); } }
+};
+
+// Mutable state shared between an experience's callbacks (stands in for the
+// closure/state a TS experience would keep).
+struct ScriptedState
+{
+	double startTime=0.0;
+	double maxAlt=-1.0e30;
+	long long intervalCount=0;
+};
+
+// ---------------------------------------------------------------------------
 // Render snapshot: a backend-agnostic, GL-free description of what to draw this
 // frame for one aircraft -- model identifier, world transform (position +
 // attitude), and the animation scalars that FsAirplaneProperty::SetupVisual
@@ -323,6 +370,70 @@ int main(int ac,char *av[])
 		}
 		fclose(fp);
 		printf("Render snapshot: wrote %d frames to %s\n",nSteps,csvPath);
+
+		world->TerminateSimulation();
+		FsFreePlugIn();
+		FsCloseWindow();
+		return 0;
+	}
+
+	// --- Optional: experience defined purely as runtime callbacks (no subclass)
+	// Closes the seam-2 gap: the same generic FsSimExtension_Callback is
+	// configured with lambdas handed in at runtime -- the native stand-in for a
+	// TS-authored experience.  Budget is read from YSF_BUDGET to show the
+	// experience is parameterized at run time, not compiled in.
+	if(NULL!=getenv("YSF_SCRIPTED_EXPERIENCE"))
+	{
+		FsSimulation *sim=world->GetSimulation();
+		double budget=(NULL!=getenv("YSF_BUDGET") ? atof(getenv("YSF_BUDGET")) : 15.0);
+		auto st=std::make_shared<ScriptedState>();
+		auto ext=std::make_shared<FsSimExtension_Callback>();
+		ext->ident.Set("TS_SCRIPTED");
+		ext->onStart=[st,budget](FsSimulation *s)
+		{
+			st->startTime=s->CurrentTime();
+			printf("[scripted] start (budget %.1fs) -- experience defined by callbacks, no C++ subclass\n",budget);
+		};
+		ext->onInterval=[st](FsSimulation *s,double)
+		{
+			++st->intervalCount;
+			const FsAirplane *p=s->GetPlayerAirplane();
+			if(NULL!=p){ double y=p->GetPosition().y(); if(y>st->maxAlt){ st->maxAlt=y; } }
+		};
+		ext->mustTerminate=[st,budget](const FsSimulation *s)
+		{
+			return s->CurrentTime()-st->startTime>=budget;
+		};
+		ext->onEnd=[st](FsSimulation *)
+		{
+			printf("[scripted] end: intervals=%lld, max altitude=%.1f m\n",st->intervalCount,st->maxAlt);
+		};
+
+		sim->RegisterExtension(ext);
+		ext->StartSimulation(sim);
+
+		FILE *fp=fopen(csvPath,"w");
+		if(NULL==fp){ printf("ERROR: cannot open '%s'.\n",csvPath); return 1; }
+		fprintf(fp,"step,t,x,y,z,heading,pitch,bank\n");
+		const double dt=0.025;
+		double t=0.0; int i=0;
+		for(; i<nSteps; i++)
+		{
+			world->SimulateOneStep(dt,YSFALSE,YSTRUE,YSFALSE,YSFALSE,FSUSC_ENABLE,YSFALSE);
+			t+=dt;
+			FsAirplane *p=world->GetPlayerAirplane();
+			if(NULL!=p)
+			{
+				const YsVec3 &pos=p->GetPosition();
+				const YsAtt3 &a=p->GetAttitude();
+				fprintf(fp,"%d,%.6f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n",
+				        i,t,pos.x(),pos.y(),pos.z(),a.h(),a.p(),a.b());
+			}
+			if(ext->MustTerminate(sim)==YSTRUE){ printf("[scripted] terminate at step %d (t=%.3fs)\n",i,t); ++i; break; }
+		}
+		ext->EndSimulation(sim);
+		fclose(fp);
+		printf("Scripted experience: wrote %d steps to %s\n",i,csvPath);
 
 		world->TerminateSimulation();
 		FsFreePlugIn();
