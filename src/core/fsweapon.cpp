@@ -2397,6 +2397,15 @@ YSRESULT FsWeaponHolder::Load(FILE *fp,FsSimulation *sim)
 
 					if(fgets(buf,256,fp)!=NULL)
 					{
+						// Tolerate a kill-credit COUNT that overshoots the data actually written
+						// (a save-side off-by-one can emit "KILLCREDIT 1 1" with no credit line).
+						// ENDRECO is the authoritative end of the weapon-record section, so stop
+						// reading credits cleanly when we reach it instead of consuming it and then
+						// failing the whole .yfs load on the next section (broke ysflight-web replay).
+						if(0==strncmp(buf,"ENDRECO",7))
+						{
+							return YSOK;
+						}
 						if(4<=version)
 						{
 							sscanf(buf,"%d%s%s%c%lf%lf%lf%lf",&type,obj1,obj2,&creditOwnerId,&x,&y,&z,&when);

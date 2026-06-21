@@ -1345,6 +1345,29 @@ void FsRunLoop::AfterDemoAction(void)
 	}
 }
 
+#ifdef __EMSCRIPTEN__
+// ysflight-web (flight replays): the engine records every flight in memory, but no
+// web-reachable trigger persists that recording to disk (-saveflight only fires at app
+// exit; the prevflight.dat saved when leaving a flight is a START snapshot WITHOUT the
+// NUMRECOR records).  Save the full world (which DOES include the per-frame records) to
+// a fixed .yfs in the IDBFS-persisted user dir, then syncfs to IndexedDB NOW — at
+// flight-end, not at beforeunload, which would race the ?freeflight return-to-top
+// reload.  The shell copies it into its replays/ history and plays it via -replayrecord.
+static void SaveLastReplayForWeb(class FsWorld *world)
+{
+	if(nullptr!=world && YSTRUE==world->SimulationIsPrepared())
+	{
+		YsWString fn;
+		fn.Set(FsGetUserYsflightDir());
+		fn.Append(L"/ysfw-lastreplay.yfs");
+		if(YSOK==world->Save(fn,3,4,2,2,2,2,0.0))
+		{
+			EM_ASM({ try { Module.FS.syncfs(false, function(){}); } catch(e){} });
+		}
+	}
+}
+#endif
+
 void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 {
 	FsDisableIME();  // Just in case.
@@ -1354,22 +1377,43 @@ void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 		runModeStack.Increment();
 	}
 
+	const RUNMODE prevRunMode=runModeStack.Last().runMode;
+
 	runModeStack.Last().runMode=runMode;
 	runModeStack.Last().runModeCounter=0;
 
 #ifdef __EMSCRIPTEN__
 	// ysflight-web: tell the web shell whether we are flying (vs in a menu) so it
-	// can hide the Room/invite overlay and the connection badge during flight.
+	// can hide the Room/invite overlay and the connection badge during flight, and
+	// whether we are playing a replay so it can drive ?replay deep-links / return-to-top.
 	{
 		const int inFlight=
 			(YSRUNMODE_FLY_REGULAR==runMode || YSRUNMODE_FLY_DEMOMODE==runMode ||
 			 YSRUNMODE_FLY_CLIENTMODE==runMode || YSRUNMODE_FLY_SERVERMODE==runMode) ? 1 : 0;
+		const int replaying=(YSRUNMODE_REPLAYRECORD==runMode) ? 1 : 0;
 		EM_ASM({
-			// Use a dedicated global; do NOT touch globalThis.ysfwRtc, because
+			// Use dedicated globals; do NOT touch globalThis.ysfwRtc, because
 			// jsRtcInit early-returns if ysfwRtc already exists, and clobbering it
 			// here would drop its methods (e.g. overlay) -> "R.overlay is not a function".
 			globalThis.ysfwInFlight = !!$0;
-		}, inFlight);
+			globalThis.ysfwReplaying = !!$1;
+		}, inFlight, replaying);
+	}
+
+	// ysflight-web (flight replays): a MULTIPLAYER flight (client/server) ends here
+	// rather than through EndSimulationMode, so persist its recording when leaving a
+	// network-fly mode for a non-fly mode.  Solo flights are handled in
+	// EndSimulationMode (below); the opening demo and replay playback are excluded.
+	{
+		const bool wasNetFlying=
+			(YSRUNMODE_FLY_CLIENTMODE==prevRunMode || YSRUNMODE_FLY_SERVERMODE==prevRunMode);
+		const bool nowFlying=
+			(YSRUNMODE_FLY_REGULAR==runMode || YSRUNMODE_FLY_CLIENTMODE==runMode ||
+			 YSRUNMODE_FLY_SERVERMODE==runMode);
+		if(wasNetFlying && !nowFlying)
+		{
+			SaveLastReplayForWeb(world);
+		}
 	}
 #endif
 
@@ -2324,6 +2368,12 @@ void FsRunLoop::DrawInSimulationMode(void)
 
 void FsRunLoop::EndSimulationMode(void)
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web (flight replays): persist the just-finished SOLO flight's recording
+	// HERE — the canonical end of a regular flight, with the live sim (and its
+	// per-frame NUMRECOR records) still intact, before PrepareReplaySimulation.
+	SaveLastReplayForWeb(world);
+#endif
 	world->PrepareReplaySimulation();
 	if(nullptr!=mainCanvas)
 	{
