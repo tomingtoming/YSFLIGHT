@@ -9239,6 +9239,7 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			}
 
 			SimulateOneStep(passedTime,YSFALSE,YSTRUE,YSFALSE,networkStandby,userControl,YSFALSE);
+			PrepareRenderView(passedTime); // restore network(server) view/camera prep lost when 578676a hoisted it out of SimulateOneStep
 			if(svrSta.netcfg.recordWhenServerMode!=YSTRUE)
 			{
 				DemoModeRipOffEarlyPartOfRecord();
@@ -10451,6 +10452,7 @@ printf("%s %d\n",__FUNCTION__,__LINE__);
 				SimulateOneStep(1.0,YSFALSE,YSTRUE,YSFALSE,networkStandby,userControl,YSFALSE);
 				cliSta.cli.SendQueryAirStateForReducingWarpProblem();
 			}
+			PrepareRenderView(passedTime); // restore network(client) view/camera prep lost when 578676a hoisted it out of SimulateOneStep
 
 			if(cliSta.netcfg.recordWhenClientMode!=YSTRUE)
 			{
