@@ -486,6 +486,7 @@ public:
 	void AdjustPrecisionOfFlightRecord(const double &precPos,const double &precAng);
 
 	const FsAirplaneTemplate *GetAirplaneTemplate(const char idName[]) const;
+	const wchar_t *GetFieldVisualFileName(const char fldName[]) const; // lazy-pack: resolve a field's .fld path for on-demand materialize (FindFieldTemplate is protected)
 
 
 

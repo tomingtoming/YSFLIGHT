@@ -4533,6 +4533,19 @@ YSRESULT FsWorld::GetFieldVisual(YsScenery &scn,const char fldName[])
 	return YSERR;
 }
 
+const wchar_t *FsWorld::GetFieldVisualFileName(const char fldName[]) const
+{
+	// Lazy-pack support: expose the highlighted field's .fld path so the shell can
+	// pre-materialize it from OPFS.  FindFieldTemplate is protected, so this public
+	// const wrapper is the access point from fschoose.
+	YsListItem <FsFieldTemplate> *ptr=FindFieldTemplate(fldName);
+	if(ptr!=NULL)
+	{
+		return ptr->dat.GetVisualFileName();
+	}
+	return NULL;
+}
+
 YSRESULT FsWorld::PrepareFieldVisual(YsListItem <FsFieldTemplate> *templ) const
 {
 	if(templ->dat.GetField()!=NULL)

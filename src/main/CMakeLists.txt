@@ -602,8 +602,15 @@ elseif(EMSCRIPTEN)
 		-sFORCE_FILESYSTEM=1
 		-sEXIT_RUNTIME=0
 		-sENVIRONMENT=web
-		-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,UTF8ToString,stringToUTF8,ENV
+		-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,UTF8ToString,stringToUTF8,ENV,Asyncify
 		-sEXPORTED_FUNCTIONS=_main,_malloc,_free
+		# Lazy-pack on-demand: ASYNCIFY lets the engine's synchronous fopen suspend
+		# while the shell materializes the file from OPFS (ysfw_openat.jslib overrides
+		# __syscall_openat).  This is THE funnel for every open -- demo/flight/selection
+		# all covered, including the no-still-delay paths the highlight prefetch missed.
+		-sASYNCIFY=1
+		-sASYNCIFY_STACK_SIZE=16384
+		"SHELL:--js-library ${YSFLIGHT_WEB_PORT_DIR}/ysfw_openat.jslib"
 		-lidbfs.js
 		-lopenal
 		"SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/../../runtime@/ysflight"
