@@ -1,4 +1,7 @@
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
 
 #ifdef WIN32  // Assuming UNIX
 #else
@@ -2136,7 +2139,8 @@ const wchar_t *FsWorld::GetAirplanePropFileName(const char idName[]) const
 }
 
 YSRESULT FsWorld::LoadAirplaneTemplate(
-    const wchar_t rootDir[],const wchar_t prop[],const wchar_t vis[],const wchar_t coll[],const wchar_t cock[],const wchar_t lod[])
+    const wchar_t rootDir[],const wchar_t prop[],const wchar_t vis[],const wchar_t coll[],const wchar_t cock[],const wchar_t lod[],
+    const char idxIdentify[],const char idxCategory[])
 {
 	YsListItem <FsAirplaneTemplate> *neo;
 	// #### YsShell collTest;
@@ -2145,6 +2149,37 @@ YSRESULT FsWorld::LoadAirplaneTemplate(
 	if(neo!=NULL)
 	{
 		neo->dat.Initialize();
+
+		// Sidecar-index fast path (see LoadAirplaneTemplateList): identify and
+		// category come from the importer, applying the same normalization as the
+		// .dat scan below.  Any invalid entry falls through to the legacy path.
+		YSBOOL loadedFromIndex=YSFALSE;
+		if(nullptr!=idxIdentify && nullptr!=idxCategory)
+		{
+			neo->dat.SetRootDir(rootDir);
+			neo->dat.idName.Set(idxIdentify);
+			neo->dat.idName.Capitalize();
+			for(int i=0; neo->dat.idName[i]!=0; i++)
+			{
+				if(neo->dat.idName[i]==' ' || neo->dat.idName[i]=='\t')
+				{
+					neo->dat.idName.Set(i,'_');
+				}
+			}
+			neo->dat.airCat=FsGetAirplaneCategoryFromString(idxCategory);
+			if(neo->dat.idName[0]!=0 && neo->dat.airCat!=FSAC_UNKNOWN)
+			{
+				loadedFromIndex=YSTRUE;
+			}
+			else
+			{
+				neo->dat.idName.Set("");
+				neo->dat.airCat=FSAC_UNKNOWN;
+			}
+		}
+
+		if(YSTRUE!=loadedFromIndex)
+		{
 
 		// #### if(neo->dat.prop.LoadProperty(prop)!=YSOK)
 		// #### {
@@ -2214,7 +2249,7 @@ YSRESULT FsWorld::LoadAirplaneTemplate(
 			airplaneTemplate.Delete(neo);
 			return YSERR;
 		}
-
+		} // YSTRUE!=loadedFromIndex (legacy .dat scan; kept at original indentation)
 
 		neo->dat.SetPropFileName(prop);
 
@@ -2497,6 +2532,44 @@ YSRESULT FsWorld::LoadAirplaneTemplateList(const wchar_t rootDir[],const wchar_t
 		cStr.EncodeUTF8 <wchar_t> (ful);
 		fsConsole.Printf("%s",cStr.Txt());
 
+		// Importer-generated sidecar ("<datPath>	<IDENTIFY>	<CATEGORY>" per line,
+		// same file name as the .lst plus ".idx").  When an entry is present the
+		// template registers without opening its .dat: with add-on aircraft in the
+		// thousands the per-.dat open dominates this scan (on the web port each
+		// open can suspend to fetch the file).  Absent or unparsable entries fall
+		// back to reading the .dat exactly as before, so a missing/stale sidecar
+		// degrades to the legacy path, never to a wrong template.
+		std::unordered_map<std::string,std::pair<std::string,std::string> > datIdx;
+		{
+			YsWString idxName=ful;
+			idxName.Append(L".idx");
+			FILE *ifp=YsFileIO::Fopen(idxName,"r");
+			if(ifp!=NULL)
+			{
+				char l[1024];
+				while(fgets(l,1024,ifp)!=NULL)
+				{
+					std::string line(l);
+					while(0<line.size() && (line.back()==0x0a || line.back()==0x0d))
+					{
+						line.pop_back();
+					}
+					auto t1=line.find(0x09);
+					if(t1==std::string::npos)
+					{
+						continue;
+					}
+					auto t2=line.find(0x09,t1+1);
+					if(t2==std::string::npos)
+					{
+						continue;
+					}
+					datIdx[line.substr(0,t1)]=std::make_pair(line.substr(t1+1,t2-t1-1),line.substr(t2+1));
+				}
+				fclose(ifp);
+			}
+		}
+
 		FILE *fp=YsFileIO::Fopen(ful,"r");
 		if(fp!=NULL)
 		{
@@ -2517,7 +2590,14 @@ YSRESULT FsWorld::LoadAirplaneTemplateList(const wchar_t rootDir[],const wchar_t
 					collFileName.SetUTF8String(av[2]);
 					cockFileName.SetUTF8String(ac>=4 ? av[3] : NULL);
 					lodFileName.SetUTF8String(ac>=5 ? av[4] : NULL);
-					if(LoadAirplaneTemplate(rootDir,propFileName,visFileName,collFileName,cockFileName,lodFileName)!=YSOK)
+					const char *idxIdentify=nullptr,*idxCategory=nullptr;
+					auto idxFound=datIdx.find(av[0]);
+					if(idxFound!=datIdx.end())
+					{
+						idxIdentify=idxFound->second.first.c_str();
+						idxCategory=idxFound->second.second.c_str();
+					}
+					if(LoadAirplaneTemplate(rootDir,propFileName,visFileName,collFileName,cockFileName,lodFileName,idxIdentify,idxCategory)!=YSOK)
 					{
 						fsStderr.Printf("Cannot Load %s\n",av[0]);
 						res=YSERR;
