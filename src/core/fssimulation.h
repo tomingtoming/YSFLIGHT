@@ -386,10 +386,13 @@ protected:
 // Customizable Factor
 	class FsFlightConfig *cfgPtr;
 
-// For landing gear / flap sound
-	double pGear,ppGear,Gear;
+// For landing gear / flap sound.  The one-time sound fires when the observed
+// value starts moving in a new direction; the direction stays latched until
+// the value moves the other way or has been stationary long enough to re-arm.
+	double prevGear,prevFlap;
+	int gearMotionDir,flapMotionDir;    // +1 extending, -1 retracting, 0 re-armed
+	double gearStillTime,flapStillTime; // simulated seconds since the value last moved
 	YSBOOL hideNextGearSound;
-	double pFlap,ppFlap,Flap;
 
 // For flight record editing
 	double timeMarker[FSNTIMEMARKER];
