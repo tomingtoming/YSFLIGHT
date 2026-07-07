@@ -2245,6 +2245,9 @@ void FsGuiChooseAircraft::Initialize(void)
 
 	filterEnabled=YSFALSE;
 
+	airListResetPending=YSFALSE;
+	airListResetRequestClock=0;
+
 	createSearch=YSTRUE;
 	selectListBoxRow=10;
 	showAirplane=YSTRUE;
@@ -2334,6 +2337,20 @@ void FsGuiChooseAircraft::OnTextBoxChange(FsGuiTextBox *txt)
 {
 	if(txt==searchTxt)
 	{
+		// Debounce: see the member declaration.  The actual rebuild happens in
+		// Interval() once the search text has been stable for the hold-off period.
+		airListResetPending=YSTRUE;
+		airListResetRequestClock=FsGuiClock();
+	}
+}
+
+void FsGuiChooseAircraft::Interval(void)
+{
+	FsGuiDialogWithFieldAndAircraft::Interval();
+	const unsigned int searchDebounceMs=200;
+	if(YSTRUE==airListResetPending && airListResetRequestClock+searchDebounceMs<FsGuiClock())
+	{
+		airListResetPending=YSFALSE;
 		ResetAircraftList();
 	}
 }
