@@ -8437,9 +8437,9 @@ YSRESULT FsSimulation::ServerJoin(
 	userInput.Initialize();
 
 	air->Prop().ReadBackControl(userInput);
-	Gear=air->Prop().GetLandingGear();
-	pGear=air->Prop().GetLandingGear();
-	ppGear=air->Prop().GetLandingGear();
+	prevGear=air->Prop().GetLandingGear();
+	gearMotionDir=0;
+	gearStillTime=0.0;
 	userInput.hasAb=air->Prop().GetHasAfterburner();
 
 	YsArray <int,64> weaponConfig;
@@ -9977,9 +9977,9 @@ YSRESULT FsSimulation::ClientState_StandBy(
 				ClearUserInterface();    // 2009/03/29
 
 				air->Prop().ReadBackControl(userInput);
-				Gear=air->Prop().GetLandingGear();
-				pGear=air->Prop().GetLandingGear();
-				ppGear=air->Prop().GetLandingGear();
+				prevGear=air->Prop().GetLandingGear();
+				gearMotionDir=0;
+				gearStillTime=0.0;
 				userInput.hasAb=air->Prop().GetHasAfterburner();
 
 				// 2001/06/24
