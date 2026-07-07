@@ -2257,12 +2257,13 @@ void FsSimulation::PrepareRunSimulation(void)
 	if(playerPlane!=NULL)
 	{
 		playerPlane->Prop().ReadBackControl(userInput);
-		Gear=playerPlane->Prop().GetLandingGear();
-		pGear=playerPlane->Prop().GetLandingGear();
-		ppGear=playerPlane->Prop().GetLandingGear();
+		prevGear=playerPlane->Prop().GetLandingGear();
+		gearMotionDir=0;
+		gearStillTime=0.0;
 		hideNextGearSound=YSFALSE;
-		pFlap=playerPlane->Prop().GetFlap();
-		ppFlap=playerPlane->Prop().GetFlap();
+		prevFlap=playerPlane->Prop().GetFlap();
+		flapMotionDir=0;
+		flapStillTime=0.0;
 		userInput.hasAb=playerPlane->Prop().GetHasAfterburner();
 		viewMagUser=playerPlane->Prop().GetDefaultZoom();
 	}
@@ -2620,55 +2621,92 @@ void FsSimulation::SimulateOneStep(
 					FsSoundSetOneTime(FSSND_ONETIME_TOUCHDWN);
 				}
 
-				if(ppGear!=pGear)
-				{
-					ppGear=pGear;
-				}
-				if(pGear!=Gear)
-				{
-					pGear=Gear;
-				}
-				Gear=playerPlane->Prop().GetLandingGear();
-				if(ppGear<=pGear && pGear>Gear)
-				{
-					if(hideNextGearSound!=YSTRUE)
-					{
-						FsSoundSetOneTime(FSSND_ONETIME_GEARUP);
-					}
-					else
-					{
-						hideNextGearSound=YSFALSE;
-					}
-				}
-				if(ppGear>=pGear && pGear<Gear)
-				{
-					if(hideNextGearSound!=YSTRUE)
-					{
-						FsSoundSetOneTime(FSSND_ONETIME_GEARDOWN);
-					}
-					else
-					{
-						hideNextGearSound=YSFALSE;
-					}
-				}
+				// The one-time gear/flap sound fires when the observed value
+				// starts moving in a new direction.  The direction stays
+				// latched until the value either moves the other way or has
+				// been stationary for the hold-off time, so a brief plateau
+				// does not re-arm the trigger.  This matters during replay:
+				// flight records keep gear/flap as ~0.05s keyframes that
+				// PlayRecord does not interpolate, so a played-back transit
+				// is a staircase of small plateaus.  The previous
+				// three-sample edge detector re-armed on every plateau and
+				// fired dozens of overlapping sounds over a single transit.
+				// The hold-off is long enough to bridge the replay keyframe
+				// plateaus, and short enough that a stepped flap input in
+				// live flight still sounds once per step.
+				const double soundReArmHoldOff=0.25;
 
-				if(ppFlap!=pFlap)
+				const double curGear=playerPlane->Prop().GetLandingGear();
+				if(curGear<prevGear)
 				{
-					ppFlap=pFlap;
+					if(-1!=gearMotionDir)
+					{
+						gearMotionDir=-1;
+						if(hideNextGearSound!=YSTRUE)
+						{
+							FsSoundSetOneTime(FSSND_ONETIME_GEARUP);
+						}
+						else
+						{
+							hideNextGearSound=YSFALSE;
+						}
+					}
+					gearStillTime=0.0;
 				}
-				if(pFlap!=Flap)
+				else if(curGear>prevGear)
 				{
-					pFlap=Flap;
+					if(1!=gearMotionDir)
+					{
+						gearMotionDir=1;
+						if(hideNextGearSound!=YSTRUE)
+						{
+							FsSoundSetOneTime(FSSND_ONETIME_GEARDOWN);
+						}
+						else
+						{
+							hideNextGearSound=YSFALSE;
+						}
+					}
+					gearStillTime=0.0;
 				}
-				Flap=playerPlane->Prop().GetFlap();
-				if(ppFlap<=pFlap && pFlap>Flap)
+				else if(0!=gearMotionDir)
 				{
-					FsSoundSetOneTime(FSSND_ONETIME_FLAPUP);
+					gearStillTime+=dt;
+					if(soundReArmHoldOff<gearStillTime)
+					{
+						gearMotionDir=0;
+					}
 				}
-				if(ppFlap>=pFlap && pFlap<Flap)
+				prevGear=curGear;
+
+				const double curFlap=playerPlane->Prop().GetFlap();
+				if(curFlap<prevFlap)
 				{
-					FsSoundSetOneTime(FSSND_ONETIME_FLAPDOWN);
+					if(-1!=flapMotionDir)
+					{
+						flapMotionDir=-1;
+						FsSoundSetOneTime(FSSND_ONETIME_FLAPUP);
+					}
+					flapStillTime=0.0;
 				}
+				else if(curFlap>prevFlap)
+				{
+					if(1!=flapMotionDir)
+					{
+						flapMotionDir=1;
+						FsSoundSetOneTime(FSSND_ONETIME_FLAPDOWN);
+					}
+					flapStillTime=0.0;
+				}
+				else if(0!=flapMotionDir)
+				{
+					flapStillTime+=dt;
+					if(soundReArmHoldOff<flapStillTime)
+					{
+						flapMotionDir=0;
+					}
+				}
+				prevFlap=curFlap;
 			}
 
 			FsPlugInCallInterval(currentTime,this);
