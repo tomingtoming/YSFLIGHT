@@ -170,6 +170,22 @@ void FsGuiDialogWithFieldAndAircraft::DrawAirplane(FsWorld *world,const char typ
 
 		YsVec3 lightEv(-2.0,-10.0,10.0);
 		lightEv.Normalize();
+#ifdef __EMSCRIPTEN__
+		// The dialog preview skips the shadow-map passes on the web build.  The
+		// three 2048x2048 depth passes are a large share of the first-preview
+		// frame spike on the single-threaded WASM build, while a small centered
+		// model gains little from shadows.  The shadow-map uniforms are disabled
+		// explicitly because nothing else resets them; without this, stale state
+		// from an earlier in-simulation frame would leak into the preview.
+		if(YSTRUE==FsIsShadowMapAvailable())
+		{
+			auto &commonTexture=FsCommonTexture::GetCommonTexture();
+			for(int i=0; i<commonTexture.GetMaxNumShadowMap(); ++i)
+			{
+				FsDisableShadowMap(5+i,0+i);
+			}
+		}
+#else
 		if(YSTRUE==FsIsShadowMapAvailable())
 		{
 			auto &commonTexture=FsCommonTexture::GetCommonTexture();
@@ -223,6 +239,7 @@ void FsGuiDialogWithFieldAndAircraft::DrawAirplane(FsWorld *world,const char typ
 				}
 			}
 		}
+#endif
 
 
 		FsProjection prj;

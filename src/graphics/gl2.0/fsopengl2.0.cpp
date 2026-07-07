@@ -6,6 +6,7 @@
 
 #include "fs.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 #include "platform/common/fswindow.h"
 
 #include "graphics/common/fsfontrenderer.h"
@@ -311,7 +312,15 @@ void FsUninitializeOpenGL(void)
 
 void FsClearScreenAndZBuffer(const YsColor &clearColor)
 {
-	if(YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
+	if(0!=FsVrIsActive())
+	{
+		// Per-eye clear.  The VR viewport is bottom-left origin already.
+		int x0,y0,wid,hei;
+		FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		glScissor(x0,y0,wid,hei);
+		glEnable(GL_SCISSOR_TEST);
+	}
+	else if(YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
 	{
 		int x0,y0,wid,hei;
 		int mainWid,mainHei;
@@ -330,7 +339,7 @@ void FsClearScreenAndZBuffer(const YsColor &clearColor)
 	//   List base is reset back to zero when OpenGL context is re-made.
 	//   OpenGL context is re-made when the window is maximized, minimized or re-sized.
 
-	if(YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
+	if(0!=FsVrIsActive() || YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
 	{
 		glDisable(GL_SCISSOR_TEST);
 	}
@@ -471,7 +480,7 @@ void FsFogOn(const YsColor &col,const double &visibility)
 	// f  0:Completely fogged out   1:Clear
 	// f=e^(-d*d)
 	// d  0:Clear      Infinity: Completely fogged out
-	// 99% fogged out means:  e^(-d*d)=0.01  WhatÅfs d?
+	// 99% fogged out means:  e^(-d*d)=0.01  WhatÔøΩfs d?
 	// -d*d=loge(0.01)
 	// -d*d= -4.60517
 	// d=2.146
@@ -500,6 +509,15 @@ void FsFogOff(void)
 
 static void FsSetupViewport(void)
 {
+	if(0!=FsVrIsActive())
+	{
+		// VR framebuffer viewport of the eye, bottom-left origin already.
+		int x0,y0,wid,hei;
+		FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		glViewport(x0,y0,wid,hei);
+		return;
+	}
+
 	int x0,y0,wid,hei;
 	int mainWid,mainHei;
 	FsGetWindowViewport(x0,y0,wid,hei); // x0,y0 is top-left corner.  OpenGL takes bottom-left corner.
@@ -633,14 +651,26 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	FsSetupViewport();
 	int xx0,yy0,wid,hei;
-	FsGetWindowViewport(xx0,yy0,wid,hei); // x0,y0 is top-left corner.  OpenGL takes bottom-left corner.
 
 	double lft,rit,top,btm;
 
-	lft=(double)(   -prj.cx)*prj.nearz/prj.prjPlnDist;
-	rit=(double)(wid-prj.cx)*prj.nearz/prj.prjPlnDist;
-	top=(double)(    prj.cy)*prj.nearz/prj.prjPlnDist;
-	btm=(double)(prj.cy-hei)*prj.nearz/prj.prjPlnDist;
+	if(0!=FsVrIsActive())
+	{
+		// Asymmetric per-eye frustum from the VR runtime, re-built at the
+		// near/far range requested by the caller so that the depth-slicing
+		// draw passes keep working in VR.
+		FsVrGetEyeViewport(FsGetActiveSplitWindow(),xx0,yy0,wid,hei);
+		FsVrGetEyeFrustum(FsGetActiveSplitWindow(),prj.nearz,prj.farz,lft,rit,btm,top);
+	}
+	else
+	{
+		FsGetWindowViewport(xx0,yy0,wid,hei); // x0,y0 is top-left corner.  OpenGL takes bottom-left corner.
+
+		lft=(double)(   -prj.cx)*prj.nearz/prj.prjPlnDist;
+		rit=(double)(wid-prj.cx)*prj.nearz/prj.prjPlnDist;
+		top=(double)(    prj.cy)*prj.nearz/prj.prjPlnDist;
+		btm=(double)(prj.cy-hei)*prj.nearz/prj.prjPlnDist;
+	}
 
 
 
