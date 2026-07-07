@@ -2353,6 +2353,27 @@ void FsGuiChooseAircraft::Interval(void)
 		airListResetPending=YSFALSE;
 		ResetAircraftList();
 	}
+
+	// Preview pre-warm.  Show() draws the preview once the selection has been
+	// stable for 1000ms.  For an aircraft that has never been previewed in this
+	// session, that first draw synchronously parses the .dnm (tens of thousands
+	// of lines for detailed models) and builds the VBOs in the same frame,
+	// which freezes the single-threaded WASM build for a moment.  Requesting
+	// the visual a little earlier moves the parse to its own frame in the quiet
+	// window, so the first preview frame only pays for VBO construction and
+	// drawing.  FsWorld caches the visual, so the eventual draw reuses it.
+	const unsigned int previewPrewarmDelayMs=400;
+	if(YSTRUE==showAirplane && nullptr!=airLbx && nullptr!=world &&
+	   airLbx->GetLastChangeClock()+previewPrewarmDelayMs<FsGuiClock())
+	{
+		YsString airSel;
+		airLbx->GetSelectedString(airSel);
+		if(0<airSel.Strlen() && 0!=airSel.Strcmp(airVisualPrewarmedFor))
+		{
+			airVisualPrewarmedFor=airSel;
+			world->GetAirplaneVisual(airSel);
+		}
+	}
 }
 
 void FsGuiChooseAircraft::OnListBoxSelChange(FsGuiListBox *lbx,int /*prevSel*/)
