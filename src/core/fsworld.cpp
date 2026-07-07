@@ -2467,6 +2467,12 @@ YSRESULT FsWorld::LoadAirplaneTemplate(InitializationOption opt)
 	{
 		LoadAirplaneTemplateList(userYsflightDir,L"aircraft",L"air",L"lst");
 	}
+	// The 0-based-index accessors (GetItemFromId via Get*TemplateName/Category)
+	// walk the linked list without this cache, which makes every by-index loop
+	// over the templates O(N^2).  Templates are only loaded here (boot-time
+	// initialization), so build the index cache once after loading; the container
+	// keeps it consistent (appends stay correct, deletes truncate).
+	airplaneTemplate.Encache();
 	return YSOK;
 }
 
@@ -2774,6 +2780,8 @@ YSRESULT FsWorld::LoadGroundTemplate(InitializationOption opt)
 	{
 		LoadGroundTemplateList(userYsflightDir,L"ground",L"gro",L"lst");
 	}
+	// See LoadAirplaneTemplate: cache the 0-based-index accessors (O(N^2) -> O(N)).
+	groundTemplate.Encache();
 	return YSOK;
 }
 
@@ -2857,6 +2865,8 @@ YSRESULT FsWorld::LoadFieldTemplate(InitializationOption opt)
 	{
 		LoadFieldTemplateList(userYsflightDir,L"scenery",L"sce",L"lst");
 	}
+	// See LoadAirplaneTemplate: cache the 0-based-index accessors (O(N^2) -> O(N)).
+	fieldTemplate.Encache();
 	return YSOK;
 }
 
