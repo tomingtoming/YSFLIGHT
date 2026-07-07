@@ -6542,7 +6542,10 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-4\n");
 #endif
 
-	if(YSTRUE==FsIsShadowMapAvailable())
+	// Shadow maps are light-space (view-independent): in VR, render them only
+	// in the first eye's pass and reuse the textures for the other eye.
+	if(YSTRUE==FsIsShadowMapAvailable() &&
+	   (0==FsVrIsActive() || 0==FsGetActiveSplitWindow()))
 	{
 		SimDrawShadowMap(actualViewMode);
 	}
@@ -6586,19 +6589,26 @@ void FsSimulation::SimDrawScreen(
 		//   Protect Polygon are drawn with side walls to prevent
 		//   something to be seen through the protect polygon due to
 		//   the clipping.
-		if(cfgPtr->zbuffQuality<=0)
+		// Each z-band below is a full scene pass.  In VR the whole block runs
+		// once per eye, so cap the band count at two (quality 1) there.
+		int zbuffQuality=cfgPtr->zbuffQuality;
+		if(0!=FsVrIsActive() && 1<zbuffQuality)
+		{
+			zbuffQuality=1;
+		}
+		if(zbuffQuality<=0)
 		{
 			auto usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,prj.farz);
 			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
 		}
-		else if(cfgPtr->zbuffQuality==1)
+		else if(zbuffQuality==1)
 		{
 			auto usedProj=SimDrawPrepareRange(actualViewMode,200.0    ,prj.farz);
 			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
 			usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,201.0);
 			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
 		}
-		else if(cfgPtr->zbuffQuality==2)
+		else if(zbuffQuality==2)
 		{
 			auto usedProj=SimDrawPrepareRange(actualViewMode,400.0    ,prj.farz);
 			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
@@ -6607,7 +6617,7 @@ void FsSimulation::SimDrawScreen(
 			usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,101.0);
 			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
 		}
-		else if(cfgPtr->zbuffQuality>=3)
+		else if(zbuffQuality>=3)
 		{
 			auto usedProj=SimDrawPrepareRange(actualViewMode,1000.0   ,prj.farz);
 			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
