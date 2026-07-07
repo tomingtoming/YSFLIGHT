@@ -19,6 +19,7 @@
 #include "fsinstpanel.h"
 #include "platform/common/fswindow.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 
 #include "fspluginmgr.h"
 #include "graphics/common/fsfontrenderer.h"
@@ -6366,6 +6367,8 @@ void FsSimulation::SimMakeUpCockpitIndicationSet(class FsCockpitIndicationSet &c
 
 void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const
 {
+	FsVrMarkSimDrawn();
+
 	for(auto addOnPtr : addOnList)
 	{
 		if(YSOK==addOnPtr->OnDraw(this))
@@ -6385,7 +6388,42 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 	// FsSplitMainWindow(YSTRUE);  <- Test split.
 
 	FsSelectMainWindow();
-	if(YSTRUE!=FsIsMainWindowSplit())
+	if(0!=FsVrIsActive())
+	{
+		// VR stereo: one pass per eye through the split-window machinery,
+		// with the whole viewpoint (viewMat AND viewPoint/viewAttitude, which
+		// drive culling, particle sorting, cloud checks and the GL camera)
+		// composed with the head-tracked eye-view transform.
+		for(int eye=0; eye<FsVrNumEye; ++eye)
+		{
+			FsSetActiveSplitWindow(eye);
+
+			ActualViewMode eyeViewMode=mainWindowActualViewMode;
+
+			// The eye-view matrix is GL-convention (right-handed, -Z
+			// forward); conjugate by the z-flip to get the same rigid motion
+			// in YSFLIGHT's left-handed (+Z forward) camera space.
+			YsMatrix4x4 eyeTfm;
+			eyeTfm.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
+			YsMatrix4x4 zFlip;
+			zFlip.Scale(1.0,1.0,-1.0);
+
+			eyeViewMode.viewMat=zFlip*eyeTfm*zFlip*eyeViewMode.viewMat;
+
+			YsMatrix4x4 camToWorld=eyeViewMode.viewMat;
+			if(YSOK==camToWorld.Invert())
+			{
+				YsVec3 fwd,up;
+				camToWorld.Mul(fwd,YsZVec(),0.0);
+				camToWorld.Mul(up,YsYVec(),0.0);
+				eyeViewMode.viewPoint=camToWorld*YsOrigin();
+				eyeViewMode.viewAttitude.SetTwoVector(fwd,up);
+			}
+
+			SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,eyeViewMode);
+		}
+	}
+	else if(YSTRUE!=FsIsMainWindowSplit())
 	{
 		SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,mainWindowActualViewMode);
 	}
@@ -6409,7 +6447,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 #endif
 
 	drewSubWindow=YSFALSE;
-	for(i=0; i<FsMaxNumSubWindow; i++)
+	for(i=0; i<FsMaxNumSubWindow && 0==FsVrIsActive(); i++)
 	{
 		if(FsIsSubWindowOpen(i)==YSTRUE)
 		{
@@ -6428,7 +6466,10 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		FsSelectMainWindow();
 	}
 
-	SimDrawGuiDialog();
+	if(0==FsVrIsActive())
+	{
+		SimDrawGuiDialog();
+	}
 
 	SimDrawFlush(); // <- Swap buffers inside.
 
@@ -6598,7 +6639,9 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-7\n");
 #endif
 
-	if(cfgPtr->drawVirtualJoystick==YSTRUE)
+	// Screen-space (2D) drawing does not have a meaningful place in a
+	// head-mounted display; skip it while a VR session is presenting.
+	if(0==FsVrIsActive() && cfgPtr->drawVirtualJoystick==YSTRUE)
 	{
 		SimDrawJoystick(actualViewMode);
 	}
@@ -6607,13 +6650,19 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-8\n");
 #endif
 
-	SimDrawForeground(actualViewMode,projForeGround,cockpitIndicationSet,demoMode,showTimer,showTimeMarker);
+	if(0==FsVrIsActive())
+	{
+		SimDrawForeground(actualViewMode,projForeGround,cockpitIndicationSet,demoMode,showTimer,showTimeMarker);
+	}
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-9\n");
 #endif
 
-	SimDrawBlackout(actualViewMode);
+	if(0==FsVrIsActive())
+	{
+		SimDrawBlackout(actualViewMode);
+	}
 
 // QueryPerformanceCounter(&ctr3);
 
@@ -6633,7 +6682,7 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-10\n");
 #endif
 
-	if(cfgPtr->showFps==YSTRUE && FsIsMainWindowActive()==YSTRUE)
+	if(cfgPtr->showFps==YSTRUE && FsIsMainWindowActive()==YSTRUE && 0==FsVrIsActive())
 	{
 		int wid,hei;
 		FsGetWindowSize(wid,hei);
