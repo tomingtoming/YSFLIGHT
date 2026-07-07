@@ -236,6 +236,12 @@ public:
 	YSBOOL airListResetPending;
 	unsigned int airListResetRequestClock;
 
+	// Preview pre-warm: remembers which aircraft's visual has already been
+	// requested during the quiet window between a selection change and the
+	// debounced preview draw in Show(), so that the (potentially expensive)
+	// .dnm parse runs on its own frame instead of on the first preview frame.
+	YsString airVisualPrewarmedFor;
+
 	FsGuiChooseAircraft();
 	void Initialize(void);
 	virtual void OnButtonClick(FsGuiButton *btn);
