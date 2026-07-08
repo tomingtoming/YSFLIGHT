@@ -1156,7 +1156,9 @@ YSRESULT FsSocketServer::CheckAndSendPendingData(int clientId,const double &curr
 		}
 		else if(user[clientId].airTypeToSend.GetN()>0)
 		{
-			SendAirplaneList(clientId,unitNum);
+			// 255, not unitNum(32): SendAirplaneList packs one <=4KiB packet and the
+			// name count is a byte -- see the caps inside.
+			SendAirplaneList(clientId,255);
 		}
 		else if(user[clientId].useMissileReadBack!=YSTRUE)
 		{
@@ -2630,7 +2632,7 @@ YSRESULT FsSocketServer::ReceiveLogOnUser(int clientId,int version,const char re
 		{
 			user[clientId].airTypeToSend.Append(airName);
 		}
-		SendAirplaneList(clientId,32);  // <- Version check is done inside.
+		SendAirplaneList(clientId,255);  // <- Version check is done inside.
 
 
 
@@ -2761,6 +2763,11 @@ YSRESULT FsSocketServer::ReceiveLoadFieldReadBack(int clientId,unsigned char dat
 		printf("%d\n",(int)user[clientId].fldToSend.GetN());
 	}
 
+	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
+	// this read-back gates the next stage of CheckAndSendPendingData's else-if
+	// ladder, which otherwise waits out the pacing timer between every stage.
+	// The timer stays as the retransmission fallback.
+	user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
 	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 
 	return YSOK;
@@ -2792,7 +2799,12 @@ YSRESULT FsSocketServer::ReceiveConfigStringReadBack(int clientId,unsigned char 
 		printf("%d\n",(int)user[clientId].configStringToSend.GetN());
 	}
 
-	// CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
+	// this read-back gates the next stage of CheckAndSendPendingData's else-if
+	// ladder, which otherwise waits out the pacing timer between every stage.
+	// The timer stays as the retransmission fallback.
+	user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 
 	return YSOK;
 }
@@ -2845,6 +2857,14 @@ YSRESULT FsSocketServer::ReceiveListReadBack(int clientId,unsigned char dat[])
 		{
 			printf("%d\n",(int)user[clientId].airTypeToSend.GetN());
 		}
+
+		// Ack-clock the drain: this read-back proves the previous batch arrived,
+		// so expire the pacing timer and let the call below send the next batch
+		// immediately.  Timer-paced batches (one per ~1.5s) made the log-on
+		// handshake take minutes with add-on aircraft in the thousands; the
+		// timer keeps running as the retransmission fallback for a lost
+		// batch or read-back.
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
 
 		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 
@@ -3001,6 +3021,21 @@ YSRESULT FsSocketServer::ReceiveReadBack(int clientId,unsigned char dat[])
 		printf("Fatal Error: Unrecognized read back is sent to the server.\n");
 		DisconnectUser(clientId);;
 		break;
+	}
+
+	// Ack-clock the log-on chain: the flag set above unblocks the next stage
+	// of CheckAndSendPendingData's else-if ladder, which otherwise waits out
+	// the pacing timer between every stage (~0.5s each while PENDING, ~6
+	// stages).  Kick the pump now; the timer stays as the retransmission
+	// fallback.  Guards: the fatal cases above disconnect the user, and a
+	// non-empty airplane-list queue means a list batch is in flight -- kicking
+	// then would resend the un-acked head batch (the list read-back is the
+	// kick that advances the drain).
+	if(user[clientId].state!=FSUSERSTATE_NOTCONNECTED &&
+	   0==user[clientId].airTypeToSend.GetN())
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 	}
 
 	return YSOK;
@@ -4434,15 +4469,22 @@ YSRESULT FsSocketServer::SendAirplaneList(int clientId,int numSend)
 
 			strcpy((char *)dat.GetArray()+curPos,user[clientId].airTypeToSend[id]);
 
-			if(dat[5]==255 || dat.GetN()>=1024)
+			// 4096, NOT 1024: both peers' com buffers are 8KiB (COMBUFSIZE), so a
+			// 4KiB list packet is safe, and it carries ~4x the aircraft names per
+			// round trip.  dat[5] (name count) is a byte, hence the 255 cap.
+			if(dat[5]==255 || dat.GetN()>=4096)
 			{
 				AddMessage("Sending Airplane List...\n");
+				printf("Airplane list: %d names remaining\n",(int)(user[clientId].airTypeToSend.GetN()-dat[5]));
 				return SendPacket(clientId,dat.GetN(),dat);
 			}
 		}
 
 		if(dat[5]>0)
 		{
+			// Progress on stdout: with thousands of add-on aircraft the drain is
+			// the visible part of log-on; one line per batch (~40 for 6000 names).
+			printf("Airplane list: %d names remaining\n",(int)(user[clientId].airTypeToSend.GetN()-dat[5]));
 			return SendPacket(clientId,dat.GetN(),dat);
 		}
 
