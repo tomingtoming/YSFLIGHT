@@ -41,6 +41,18 @@ extern "C" float *FsVrEyeDataPointer(int eye)
 	return fsVrEyeData[eye];
 }
 
+static int fsVrMultiview=0;
+
+extern "C" int FsVrIsMultiview(void)
+{
+	return fsVrMultiview;
+}
+
+extern "C" void FsVrSetMultiview(int multiview)
+{
+	fsVrMultiview=(0!=multiview ? 1 : 0);
+}
+
 extern "C" int FsVrConsumeSimDrawnFrames(void)
 {
 	const int n=fsVrSimDrawnFrame;

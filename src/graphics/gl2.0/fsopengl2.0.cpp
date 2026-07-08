@@ -692,7 +692,46 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	GLfloat projMat[16];
 	YsGLMakeFrustum(projMat,(GLfloat)lft,(GLfloat)rit,(GLfloat)btm,(GLfloat)top,(GLfloat)prj.nearz,(GLfloat)prj.farz);
-	YsGLSLSetShared3DRendererProjection(projMat);
+	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
+	{
+		// Single-pass stereo: the scene pass renders from the eye-0 pose
+		// (SimDrawAllScreen), so fold each eye's difference into its view of
+		// the projection array: projection[i] = P_i * V_i * inverse(V_0).
+		// V_i are the GL-convention eye-view matrices from the VR runtime;
+		// the composition happens entirely in GL space, downstream of the
+		// engine's LH->GL modelView, so no z-flip conjugation is needed.
+		YsMatrix4x4 eye0View;
+		eye0View.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+		YsMatrix4x4 eye0ViewInv=eye0View;
+		eye0ViewInv.Invert();
+
+		GLfloat stereoProj[32];
+		for(int eye=0; eye<FsVrNumEye; ++eye)
+		{
+			double eLft,eRit,eBtm,eTop;
+			FsVrGetEyeFrustum(eye,prj.nearz,prj.farz,eLft,eRit,eBtm,eTop);
+			GLfloat eyeProjMat[16];
+			YsGLMakeFrustum(eyeProjMat,(GLfloat)eLft,(GLfloat)eRit,(GLfloat)eBtm,(GLfloat)eTop,(GLfloat)prj.nearz,(GLfloat)prj.farz);
+
+			YsMatrix4x4 eyeProj;
+			eyeProj.CreateFromOpenGlCompatibleMatrix(eyeProjMat);
+			YsMatrix4x4 eyeView;
+			eyeView.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
+
+			YsMatrix4x4 combined=eyeProj*eyeView*eye0ViewInv;
+			GLfloat combinedMat[16];
+			combined.GetOpenGlCompatibleMatrix(combinedMat);
+			for(int i=0; i<16; ++i)
+			{
+				stereoProj[eye*16+i]=combinedMat[i];
+			}
+		}
+		YsGLSLSetShared3DRendererProjectionStereo(stereoProj);
+	}
+	else
+	{
+		YsGLSLSetShared3DRendererProjection(projMat);
+	}
 
 	{
 		auto fsBitmapFontRenderer=YsGLSLSharedBitmapFontRenderer();

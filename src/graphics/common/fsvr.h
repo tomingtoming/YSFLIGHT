@@ -32,6 +32,14 @@ extern "C"
 	float *FsVrEyeDataPointer(int eye);
 	/*! Returns the number of simulation frames drawn since the last call. */
 	int FsVrConsumeSimDrawnFrames(void);
+	/*! Single-pass stereo (OVR_multiview2).  While active the scene is drawn
+	    ONCE from the eye-0 pose into a two-layer framebuffer; the per-eye
+	    difference is folded into a per-view projection array
+	    (projection[i] = P_i * V_i * inverse(V_0)) by the graphics back-end.
+	    The VR runtime must have the shared renderers compiled with
+	    YsGLSLSetCompileNumViews(2) (see FsReinitializeOpenGL). */
+	int FsVrIsMultiview(void);
+	void FsVrSetMultiview(int multiview);
 }
 
 const int FsVrNumEye=2;
