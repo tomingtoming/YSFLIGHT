@@ -2766,9 +2766,15 @@ YSRESULT FsSocketServer::ReceiveLoadFieldReadBack(int clientId,unsigned char dat
 	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
 	// this read-back gates the next stage of CheckAndSendPendingData's else-if
 	// ladder, which otherwise waits out the pacing timer between every stage.
-	// The timer stays as the retransmission fallback.
-	user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
-	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	// The timer stays as the retransmission fallback.  PENDING-only: the
+	// ladder's completion tail is not idempotent (it re-announces log-on and
+	// re-sends SendLogOnComplete), and only the PENDING-gated periodic pump
+	// was ever meant to reach it.
+	if(user[clientId].state==FSUSERSTATE_PENDING)
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	}
 
 	return YSOK;
 }
@@ -2799,12 +2805,13 @@ YSRESULT FsSocketServer::ReceiveConfigStringReadBack(int clientId,unsigned char 
 		printf("%d\n",(int)user[clientId].configStringToSend.GetN());
 	}
 
-	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
-	// this read-back gates the next stage of CheckAndSendPendingData's else-if
-	// ladder, which otherwise waits out the pacing timer between every stage.
-	// The timer stays as the retransmission fallback.
-	user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
-	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	// Ack-clock the log-on chain: see ReceiveLoadFieldReadBack.  PENDING-only,
+	// because the ladder's completion tail is not idempotent.
+	if(user[clientId].state==FSUSERSTATE_PENDING)
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	}
 
 	return YSOK;
 }
@@ -2863,8 +2870,12 @@ YSRESULT FsSocketServer::ReceiveListReadBack(int clientId,unsigned char dat[])
 		// immediately.  Timer-paced batches (one per ~1.5s) made the log-on
 		// handshake take minutes with add-on aircraft in the thousands; the
 		// timer keeps running as the retransmission fallback for a lost
-		// batch or read-back.
-		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		// batch or read-back.  PENDING-only: the ladder's completion tail is
+		// not idempotent (see ReceiveLoadFieldReadBack).
+		if(user[clientId].state==FSUSERSTATE_PENDING)
+		{
+			user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		}
 
 		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 
@@ -3027,11 +3038,12 @@ YSRESULT FsSocketServer::ReceiveReadBack(int clientId,unsigned char dat[])
 	// of CheckAndSendPendingData's else-if ladder, which otherwise waits out
 	// the pacing timer between every stage (~0.5s each while PENDING, ~6
 	// stages).  Kick the pump now; the timer stays as the retransmission
-	// fallback.  Guards: the fatal cases above disconnect the user, and a
-	// non-empty airplane-list queue means a list batch is in flight -- kicking
-	// then would resend the un-acked head batch (the list read-back is the
-	// kick that advances the drain).
-	if(user[clientId].state!=FSUSERSTATE_NOTCONNECTED &&
+	// fallback.  Guards: PENDING-only, because the ladder's completion tail
+	// is not idempotent (it re-announces log-on and re-sends
+	// SendLogOnComplete -- read-backs keep arriving for the whole session),
+	// and a non-empty airplane-list queue means a list batch is in flight --
+	// kicking then would resend the un-acked head batch.
+	if(user[clientId].state==FSUSERSTATE_PENDING &&
 	   0==user[clientId].airTypeToSend.GetN())
 	{
 		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
@@ -4474,8 +4486,14 @@ YSRESULT FsSocketServer::SendAirplaneList(int clientId,int numSend)
 			// round trip.  dat[5] (name count) is a byte, hence the 255 cap.
 			if(dat[5]==255 || dat.GetN()>=4096)
 			{
-				AddMessage("Sending Airplane List...\n");
-				printf("Airplane list: %d names remaining\n",(int)(user[clientId].airTypeToSend.GetN()-dat[5]));
+				// One in-game message per ~1000 names: ack-clocked batches arrive in
+				// a burst, and a per-batch AddMessage floods the message area.
+				const int remain=(int)(user[clientId].airTypeToSend.GetN()-dat[5]);
+				if((remain/1000)!=((remain+dat[5])/1000))
+				{
+					AddMessage("Sending Airplane List...\n");
+				}
+				printf("Airplane list: %d names remaining\n",remain);
 				return SendPacket(clientId,dat.GetN(),dat);
 			}
 		}
