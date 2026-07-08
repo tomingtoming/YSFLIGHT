@@ -594,6 +594,7 @@ elseif(EMSCRIPTEN)
 	set_target_properties(ysflight${BITNESS}_gl2 PROPERTIES SUFFIX ".js")
 	target_link_options(ysflight${BITNESS}_gl2 PRIVATE
 		-sFULL_ES2=1
+		-sMAX_WEBGL_VERSION=2
 		-sASSERTIONS=1
 		# Single-threaded web build: see src/CMakeLists.txt for why -pthread
 		# (and -sPTHREAD_POOL_SIZE / -sDEFAULT_PTHREAD_STACK_SIZE) are omitted.
