@@ -2763,6 +2763,11 @@ YSRESULT FsSocketServer::ReceiveLoadFieldReadBack(int clientId,unsigned char dat
 		printf("%d\n",(int)user[clientId].fldToSend.GetN());
 	}
 
+	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
+	// this read-back gates the next stage of CheckAndSendPendingData's else-if
+	// ladder, which otherwise waits out the pacing timer between every stage.
+	// The timer stays as the retransmission fallback.
+	user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
 	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 
 	return YSOK;
@@ -2794,7 +2799,12 @@ YSRESULT FsSocketServer::ReceiveConfigStringReadBack(int clientId,unsigned char 
 		printf("%d\n",(int)user[clientId].configStringToSend.GetN());
 	}
 
-	// CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
+	// this read-back gates the next stage of CheckAndSendPendingData's else-if
+	// ladder, which otherwise waits out the pacing timer between every stage.
+	// The timer stays as the retransmission fallback.
+	user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 
 	return YSOK;
 }
@@ -3011,6 +3021,21 @@ YSRESULT FsSocketServer::ReceiveReadBack(int clientId,unsigned char dat[])
 		printf("Fatal Error: Unrecognized read back is sent to the server.\n");
 		DisconnectUser(clientId);;
 		break;
+	}
+
+	// Ack-clock the log-on chain: the flag set above unblocks the next stage
+	// of CheckAndSendPendingData's else-if ladder, which otherwise waits out
+	// the pacing timer between every stage (~0.5s each while PENDING, ~6
+	// stages).  Kick the pump now; the timer stays as the retransmission
+	// fallback.  Guards: the fatal cases above disconnect the user, and a
+	// non-empty airplane-list queue means a list batch is in flight -- kicking
+	// then would resend the un-acked head batch (the list read-back is the
+	// kick that advances the drain).
+	if(user[clientId].state!=FSUSERSTATE_NOTCONNECTED &&
+	   0==user[clientId].airTypeToSend.GetN())
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 	}
 
 	return YSOK;
