@@ -6388,7 +6388,37 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 	// FsSplitMainWindow(YSTRUE);  <- Test split.
 
 	FsSelectMainWindow();
-	if(0!=FsVrIsActive())
+	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
+	{
+		// Single-pass stereo (OVR_multiview2): the scene is traversed ONCE
+		// from the eye-0 pose; the eye-1 difference is folded into the
+		// per-view projection array by FsSetSceneProjection.  Culling,
+		// particle sorting and cloud checks use the eye-0 pose (the eyes are
+		// ~3cm apart -- well inside every culling margin).
+		FsSetActiveSplitWindow(0);
+
+		ActualViewMode eyeViewMode=mainWindowActualViewMode;
+
+		YsMatrix4x4 eyeTfm;
+		eyeTfm.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+		YsMatrix4x4 zFlip;
+		zFlip.Scale(1.0,1.0,-1.0);
+
+		eyeViewMode.viewMat=zFlip*eyeTfm*zFlip*eyeViewMode.viewMat;
+
+		YsMatrix4x4 camToWorld=eyeViewMode.viewMat;
+		if(YSOK==camToWorld.Invert())
+		{
+			YsVec3 fwd,up;
+			camToWorld.Mul(fwd,YsZVec(),0.0);
+			camToWorld.Mul(up,YsYVec(),0.0);
+			eyeViewMode.viewPoint=camToWorld*YsOrigin();
+			eyeViewMode.viewAttitude.SetTwoVector(fwd,up);
+		}
+
+		SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,eyeViewMode);
+	}
+	else if(0!=FsVrIsActive())
 	{
 		// VR stereo: one pass per eye through the split-window machinery,
 		// with the whole viewpoint (viewMat AND viewPoint/viewAttitude, which
