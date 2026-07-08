@@ -6542,10 +6542,24 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-4\n");
 #endif
 
-	// Shadow maps are light-space (view-independent): in VR, render them only
-	// in the first eye's pass and reuse the textures for the other eye.
-	if(YSTRUE==FsIsShadowMapAvailable() &&
-	   (0==FsVrIsActive() || 0==FsGetActiveSplitWindow()))
+	// Shadow maps are extra full-scene passes into off-screen buffers.  The
+	// stereo path is CPU/draw-call bound on a standalone headset (lowering the
+	// framebuffer resolution did not raise the frame rate), so drop shadows
+	// entirely in VR -- barely visible in flight, and each cascade was another
+	// scene traversal.  Disable sampling too, so the scene does not read the
+	// stale shadow maps left bound by the last 2D frame.
+	if(0!=FsVrIsActive())
+	{
+		if(YSTRUE==FsIsShadowMapAvailable())
+		{
+			auto &commonTexture=FsCommonTexture::GetCommonTexture();
+			for(int i=0; i<commonTexture.GetMaxNumShadowMap(); ++i)
+			{
+				FsDisableShadowMap(5+i,0+i);
+			}
+		}
+	}
+	else if(YSTRUE==FsIsShadowMapAvailable())
 	{
 		SimDrawShadowMap(actualViewMode);
 	}
@@ -6590,11 +6604,13 @@ void FsSimulation::SimDrawScreen(
 		//   something to be seen through the protect polygon due to
 		//   the clipping.
 		// Each z-band below is a full scene pass.  In VR the whole block runs
-		// once per eye, so cap the band count at two (quality 1) there.
+		// once per eye, so collapse to a single band (one pass) there.  The
+		// depth range widens, but a single 24-bit depth buffer holds up well
+		// enough in flight, and this halves the scene draw versus two bands.
 		int zbuffQuality=cfgPtr->zbuffQuality;
-		if(0!=FsVrIsActive() && 1<zbuffQuality)
+		if(0!=FsVrIsActive())
 		{
-			zbuffQuality=1;
+			zbuffQuality=0;
 		}
 		if(zbuffQuality<=0)
 		{
