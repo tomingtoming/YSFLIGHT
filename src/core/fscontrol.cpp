@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "fsfilename.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 #include "platform/common/fswindow.h"
 
 #include <time.h>
@@ -799,7 +800,46 @@ YSRESULT FsFlightControl::ReadControl
 		viewPch=viewAtt.p();
 	}
 
+	// The single-argument ReadControl overload (above) delegates into this
+	// one, so applying the VR override only here covers both entry points
+	// without duplicating it.
+	ApplyVrControlOverride();
+
 	return YSOK;
+}
+
+void FsFlightControl::ApplyVrControlOverride(void)
+{
+	if(0==FsVrIsActive())
+	{
+		return;
+	}
+
+	const float *ctlData=FsVrControlDataPointer();
+
+	if(0.5f<ctlData[0]) // Virtual stick grabbed.
+	{
+		// fsvr.h's block convention is aileron positive=roll right, but this
+		// engine's own ctlAileron is positive=roll LEFT (see
+		// FSBTF_AILERONLEFT/AILERONRIGHT in ProcessButtonFunction above, and
+		// how SetDefaultKeyboardAsStick wires FSKEY_RIGHT to AILERONRIGHT),
+		// so the sign has to flip on the way in.
+		ctlAileron=YsBound((double)(-ctlData[1]),-1.0,1.0);
+		// Elevator (positive=nose up) and rudder (positive=nose left)
+		// already share the block's sign convention -- ELEVATORUP raises
+		// ctlElevator and RUDDERLEFT raises ctlRudder -- so no flip needed.
+		ctlElevator=YsBound((double)ctlData[2],-1.0,1.0);
+		ctlRudder=YsBound((double)ctlData[3],-1.0,1.0);
+	}
+
+	// Gated on throttleEverGrabbed (not throttleGrabbed): once the VR
+	// throttle has been touched at all, its latched value is authoritative
+	// for the rest of the session, mirroring a real throttle lever that
+	// stays where it was left after release.
+	if(0.5f<ctlData[6])
+	{
+		ctlThrottle=YsBound((double)ctlData[5],0.0,1.0);
+	}
 }
 
 YSBOOL FsFlightControl::SetControlAxis

@@ -287,6 +287,12 @@ public:
 	YSRESULT CenterJoystick(class FsControlAssignment &ctlAssign);
 private:
 	double Margin(double org,const double deadZone) const;
+
+	/*! Overrides aileron/elevator/rudder/throttle from the VR controller
+	    state block (see fsvr.h) while FsVrIsActive.  Called at the end of
+	    ReadControl so a grabbed VR stick/throttle takes priority over
+	    keyboard/mouse/joystick for the frame. */
+	void ApplyVrControlOverride(void);
 };
 
 
