@@ -6417,6 +6417,46 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		}
 
 		SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,eyeViewMode);
+
+		// VR HUD: render the primary 2D flying HUD once into the off-screen
+		// two-layer multiview HUD framebuffer (both layers identical, drawn by
+		// the same stereo-compiled shared renderers), then composite it onto a
+		// cockpit-anchored quad ~1 m in front of the pilot.  The multiview scene
+		// framebuffer is still bound when SimDrawScreen returns; FsVrBeginHud/
+		// EndHudRender bracket the off-screen detour and restore it.
+		const float *hudData=FsVrHudDataPointer();
+		if(0.0f!=hudData[0])
+		{
+			FsVrBeginHudRender();
+			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode);
+			FsVrEndHudRender();
+
+			// Cockpit-anchored quad, world space, from the pre-eye camera basis.
+			YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+			if(YSOK==camToWorld.Invert())
+			{
+				YsVec3 fwd,up,right;
+				camToWorld.Mul(fwd,YsZVec(),0.0);
+				camToWorld.Mul(up,YsYVec(),0.0);
+				camToWorld.Mul(right,YsXVec(),0.0);
+
+				const double dist=1.0;   // 1 m in front of the eye.
+				const double half=0.45;  // 0.9 m x 0.9 m glass (~48 deg at 1 m).
+				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist;
+				const YsVec3 bl=center-right*half-up*half;
+				const YsVec3 br=center+right*half-up*half;
+				const YsVec3 tr=center+right*half+up*half;
+				const YsVec3 tl=center-right*half+up*half;
+				const float corner[12]=
+				{
+					(float)bl.x(),(float)bl.y(),(float)bl.z(),
+					(float)br.x(),(float)br.y(),(float)br.z(),
+					(float)tr.x(),(float)tr.y(),(float)tr.z(),
+					(float)tl.x(),(float)tl.y(),(float)tl.z()
+				};
+				FsVrDrawHudQuad(corner);
+			}
+		}
 	}
 	else if(0!=FsVrIsActive())
 	{
@@ -6767,6 +6807,45 @@ void FsSimulation::SimDrawScreen(
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-99\n");
 #endif
+}
+
+void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const
+{
+	// Off-screen 2D HUD pass for single-pass-stereo VR.  The caller
+	// (SimDrawAllScreen) has bound the two-layer multiview HUD framebuffer via
+	// FsVrBeginHudRender, which also made FsGetWindowSize / the 2D viewport
+	// report the HUD texture size, so all the pixel-space placement below lands
+	// on the HUD texture.  Only the primary flying HUD is rendered here (the
+	// combiner-glass symbology): the flat screen-space status text / warnings /
+	// damage bar that SimDrawForeground also draws are deliberately left out --
+	// they have no place on a cockpit-anchored glass, and the 3D cockpit
+	// interior stays in the world scene pass.
+	const FsAirplane *playerPlane=GetPlayerAirplane();
+
+	FsSet2DDrawing();
+
+	if(NULL!=playerPlane &&
+	   YSTRUE==playerPlane->IsAlive() &&
+	   YSTRUE==playerPlane->Prop().CheckHUDVisible())
+	{
+		// In VR the HUD glass is always presented while the player flies a
+		// HUD-equipped plane, independent of the exterior/cockpit view mode.
+		YSBOOL autoPilot=(NULL!=playerPlane->GetAutopilot() ? YSTRUE : YSFALSE);
+		if(long(currentTime*2.0)%2==0)
+		{
+			hud->Draw(autoPilot,cockpitIndicationSet);
+		}
+		else
+		{
+			hud->Draw(YSFALSE,cockpitIndicationSet);
+		}
+
+		SimDraw2dVor1(cockpitIndicationSet);
+		SimDraw2dVor2(cockpitIndicationSet);
+		SimDraw2dAdf(cockpitIndicationSet);
+
+		SimDrawRadar(actualViewMode);
+	}
 }
 
 void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const

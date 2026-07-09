@@ -890,6 +890,11 @@ protected:
 	void SimMakeUpCockpitIndicationSet(class FsCockpitIndicationSet &cockpitIndicationSet) const;
 	void SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const;
 	void SimDrawScreen(const double &dt,const FsCockpitIndicationSet &cockpitIndicationSet,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker,const ActualViewMode &actualViewMode) const;
+	/*! VR single-pass-stereo HUD: draws the primary 2D flying HUD (attitude,
+	    speed/altitude, VOR/ADF, radar) with the 2D coordinate system sized to
+	    the HUD texture.  Caller has already bound the off-screen HUD framebuffer
+	    (FsVrBeginHudRender). */
+	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const;
 	void SimDrawShadowMap(const ActualViewMode &actualViewMode) const;
 	void SimDrawGuiDialog(void) const;
 	void SimDrawScreenZBufferSensitive(
