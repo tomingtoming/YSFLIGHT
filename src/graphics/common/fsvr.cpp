@@ -60,6 +60,21 @@ extern "C" int FsVrConsumeSimDrawnFrames(void)
 	return n;
 }
 
+#define FSVR_CTLDATA_INIT \
+	{ \
+		0.0f,0.0f,0.0f,0.0f, \
+		0.0f,0.0f,0.0f,0.0f, \
+		0.0f,0.0f,0.0f,0.0f, \
+		0.0f,0.0f,0.0f,0.0f \
+	}
+
+static float fsVrCtlData[16]=FSVR_CTLDATA_INIT;
+
+extern "C" float *FsVrControlDataPointer(void)
+{
+	return fsVrCtlData;
+}
+
 void FsVrMarkSimDrawn(void)
 {
 	if(fsVrSimDrawnFrame<0x40000000)

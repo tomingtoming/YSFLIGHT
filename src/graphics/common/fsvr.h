@@ -25,6 +25,25 @@
 //   [20..23]  viewport in the VR framebuffer: x, y, width, height,
 //             bottom-left origin (OpenGL convention)
 
+// Control-data layout (FsVrControlDataPointer, 16 floats):
+//   A VR controller runtime (WebXR in ysflight-web) writes hand-controller
+//   state here every frame; FsFlightControl::ReadControl reads it (while
+//   FsVrIsActive) to override the player airplane's aileron/elevator/rudder
+//   and throttle controls.  This block's ranges and signs are the canonical,
+//   engine-neutral convention -- the reader converts to whatever internal
+//   range/sign FsFlightControl's own members happen to use.
+//   [0]  stickGrabbed         (0 or 1; virtual control stick is held)
+//   [1]  aileron              (-1..+1; positive = roll right)
+//   [2]  elevator             (-1..+1; positive = nose up)
+//   [3]  rudder               (-1..+1; positive = nose left)
+//   [4]  throttleGrabbed      (0 or 1; virtual throttle lever is held)
+//   [5]  throttle             (0..1)
+//   [6]  throttleEverGrabbed  (0 or 1; once set to 1 by the writer, stays 1
+//                              for the rest of the session -- tells the
+//                              reader that [5] is a real, live-supplied
+//                              throttle value, as opposed to never touched)
+//   [7..15] reserved, always 0
+
 extern "C"
 {
 	int FsVrIsActive(void);
@@ -40,6 +59,7 @@ extern "C"
 	    YsGLSLSetCompileNumViews(2) (see FsReinitializeOpenGL). */
 	int FsVrIsMultiview(void);
 	void FsVrSetMultiview(int multiview);
+	float *FsVrControlDataPointer(void);
 }
 
 const int FsVrNumEye=2;
