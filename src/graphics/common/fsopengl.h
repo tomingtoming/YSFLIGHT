@@ -72,6 +72,14 @@ void FsDisableShadowMap(int samplerIdent,int shadowMapIdent);
 void FsSetSceneProjection(const class FsProjection &prj);
 void FsSet2DDrawing(void);
 
+// VR single-pass-stereo HUD composite (see fsopengl2.0.cpp).  FsVrBeginHudRender
+// / FsVrEndHudRender bracket the off-screen 2D HUD pass into the two-layer
+// multiview HUD framebuffer; FsVrDrawHudQuad composites that texture array onto
+// a cockpit-anchored world-space quad (corner = 4 x vec3, BL,BR,TR,TL).
+void FsVrBeginHudRender(void);
+void FsVrEndHudRender(void);
+void FsVrDrawHudQuad(const float corner[12]);
+
 void FsBeginDrawShadow(void);  // Set polygon offset -1,-1 and enable.
 void FsEndDrawShadow(void);    // Disable polygon offset.
 

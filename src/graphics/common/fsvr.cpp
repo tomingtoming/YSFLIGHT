@@ -75,6 +75,41 @@ extern "C" float *FsVrControlDataPointer(void)
 	return fsVrCtlData;
 }
 
+static float fsVrHudData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrHudDataPointer(void)
+{
+	return fsVrHudData;
+}
+
+static int fsVrHudRenderActive=0;
+static int fsVrHudRenderW=0;
+static int fsVrHudRenderH=0;
+
+extern "C" void FsVrSetHudRenderTarget(int active,int w,int h)
+{
+	fsVrHudRenderActive=(0!=active ? 1 : 0);
+	fsVrHudRenderW=w;
+	fsVrHudRenderH=h;
+}
+
+extern "C" int FsVrHudRenderTargetActive(void)
+{
+	return fsVrHudRenderActive;
+}
+
+extern "C" void FsVrGetHudRenderSize(int *w,int *h)
+{
+	if(nullptr!=w)
+	{
+		*w=fsVrHudRenderW;
+	}
+	if(nullptr!=h)
+	{
+		*h=fsVrHudRenderH;
+	}
+}
+
 void FsVrMarkSimDrawn(void)
 {
 	if(fsVrSimDrawnFrame<0x40000000)

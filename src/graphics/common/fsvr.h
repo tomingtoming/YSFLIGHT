@@ -60,6 +60,30 @@ extern "C"
 	int FsVrIsMultiview(void);
 	void FsVrSetMultiview(int multiview);
 	float *FsVrControlDataPointer(void);
+
+	/*! Head-up-display composite state block (8 floats).  The VR runtime (the
+	    WebXR layer) writes it when single-pass-stereo mode engages; the
+	    graphics back-end reads it to render the flat in-flight HUD into an
+	    off-screen two-layer multiview framebuffer and composite it onto a
+	    cockpit-anchored quad.
+	      [0] enable    (0/1, written by the web layer)
+	      [1] hudFbo    (GL framebuffer name, two-layer multiview FBO)
+	      [2] hudTexArray (GL_TEXTURE_2D_ARRAY name, RGBA8, 2 layers)
+	      [3] texWidth
+	      [4] texHeight
+	      [5..7] reserved (0)
+	    The GL names are stored as floats because they are always small
+	    non-negative integers that round-trip exactly through float32 (same
+	    convention as the other fsvr shared blocks). */
+	float *FsVrHudDataPointer(void);
+
+	/*! Transient override, set only while the HUD off-screen pass is running,
+	    so that the 2D coordinate machinery (FsSetupViewport / FsGetWindowSize)
+	    believes the "screen" is the HUD texture (texW x texH) instead of the
+	    real window / eye buffer.  Cleared immediately after the pass. */
+	void FsVrSetHudRenderTarget(int active,int w,int h);
+	int FsVrHudRenderTargetActive(void);
+	void FsVrGetHudRenderSize(int *w,int *h);
 }
 
 const int FsVrNumEye=2;

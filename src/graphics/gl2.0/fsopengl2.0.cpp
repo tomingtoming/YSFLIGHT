@@ -17,6 +17,7 @@
 #include <ysglcpp.h>
 #include <ysglslcpp.h>
 #include <ysglsldrawfontbitmap.h>
+#include <ysglslhudquadrenderer.h>
 
 #include "fsopengl2.0.h"
 
@@ -185,6 +186,12 @@ static void FsMakeAlphaMask(YsBitmap &bmp)
 	}
 }
 
+// VR single-pass-stereo HUD composite: the texture-array quad renderer.  Only
+// non-NULL while the shared renderers are compiled stereo (multiview mode);
+// YsGLSLCreateHudQuadRenderer returns NULL otherwise, so this stays NULL on the
+// mono path and the composite is simply skipped.
+static struct YsGLSLHudQuadRenderer *fsHudQuadRenderer=NULL;
+
 void FsInitializeOpenGL(void)
 {
 	const char *verStr=(const char *)glGetString(GL_VERSION);
@@ -288,12 +295,18 @@ void FsInitializeOpenGL(void)
 	YsGLSLSetShared3DRendererSpecularExponent(600.0f);
 
 	YsGLSLCreateSharedBitmapFontRenderer();
+
+	// Stereo HUD-quad renderer: created only when the shared renderers are in
+	// multiview compile mode (returns NULL otherwise).
+	fsHudQuadRenderer=YsGLSLCreateHudQuadRenderer();
 }
 
 void FsReinitializeOpenGL(void)
 {
 	YsGLSLDeleteSharedRenderer();
 	YsGLSLDeleteSharedBitmapFontRenderer();
+	YsGLSLDeleteHudQuadRenderer(fsHudQuadRenderer);
+	fsHudQuadRenderer=NULL;
 	FsInitializeOpenGL();
 }
 
@@ -307,6 +320,8 @@ void FsUninitializeOpenGL(void)
 
 	YsGLSLDeleteSharedBitmapFontRenderer();
 	YsGLSLDeleteSharedRenderer();
+	YsGLSLDeleteHudQuadRenderer(fsHudQuadRenderer);
+	fsHudQuadRenderer=NULL;
 }
 
 
@@ -509,6 +524,14 @@ void FsFogOff(void)
 
 static void FsSetupViewport(void)
 {
+	if(0!=FsVrHudRenderTargetActive())
+	{
+		// The VR HUD off-screen pass draws into the full HUD texture.
+		int w,h;
+		FsVrGetHudRenderSize(&w,&h);
+		glViewport(0,0,w,h);
+		return;
+	}
 	if(0!=FsVrIsActive())
 	{
 		// VR framebuffer viewport of the eye, bottom-left origin already.
@@ -643,6 +666,37 @@ void FsDisableShadowMap(int samplerIdent,int shadowMapIdent)
 }
 
 
+// Cached scene camera state for the VR single-pass-stereo HUD composite.
+// fsLastSceneProjectionStereo is the projection[2] array folded by
+// FsSetSceneProjection; fsLastSceneModelView is the world->eye0 modelView last
+// uploaded by FsSetCameraPosition.  SimDrawAllScreen retrieves both through the
+// getters below so the cockpit-anchored HUD quad shares the scene's matrices.
+static GLfloat fsLastSceneProjectionStereo[32]=
+{
+	1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1,
+	1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+};
+static GLfloat fsLastSceneModelView[16]=
+{
+	1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+};
+
+static void FsGetLastSceneProjectionStereofv(GLfloat out[32])
+{
+	for(int i=0; i<32; ++i)
+	{
+		out[i]=fsLastSceneProjectionStereo[i];
+	}
+}
+
+static void FsGetLastSceneModelViewfv(GLfloat out[16])
+{
+	for(int i=0; i<16; ++i)
+	{
+		out[i]=fsLastSceneModelView[i];
+	}
+}
+
 void FsSetSceneProjection(const class FsProjection &prj)
 {
 #ifdef YSOGLERRORCHECK
@@ -727,6 +781,12 @@ void FsSetSceneProjection(const class FsProjection &prj)
 			}
 		}
 		YsGLSLSetShared3DRendererProjectionStereo(stereoProj);
+		// Cache for the VR HUD-quad composite (SimDrawAllScreen), which must
+		// use the exact same per-view projection array as the scene pass.
+		for(int i=0; i<32; ++i)
+		{
+			fsLastSceneProjectionStereo[i]=stereoProj[i];
+		}
 	}
 	else
 	{
@@ -783,6 +843,84 @@ void FsSet2DDrawing(void)
 #endif
 }
 
+// ---- VR single-pass-stereo HUD composite ---------------------------------
+// SimDrawAllScreen (core) drives these while VR + multiview + HUD-enable are
+// all on.  FsVrBeginHudRender/FsVrEndHudRender bracket the off-screen 2D HUD
+// pass into the two-layer multiview HUD framebuffer; FsVrDrawHudQuad then
+// composites that texture array onto a cockpit-anchored quad in the scene FBO.
+// Defined in the fssimplewindow emscripten back-end: make FsGetWindowSize
+// report the HUD texture size for the duration of the off-screen HUD pass, so
+// pixel-space HUD placement lands on the HUD texture.  (fssimplewindow stays
+// dependency-free of fsvr; only the engine, which links both, bridges them.)
+extern "C" void FsSetWindowSizeOverride(int active,int w,int h);
+
+void FsVrBeginHudRender(void)
+{
+	const float *hud=FsVrHudDataPointer();
+	GLuint hudFbo=(GLuint)hud[1];
+	int texW=(int)hud[3];
+	int texH=(int)hud[4];
+
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,hudFbo);
+	glViewport(0,0,texW,texH);
+	glClearColor(0.0f,0.0f,0.0f,0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void FsVrEndHudRender(void)
+{
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
+	// The web layer redirects a bind(0) to the active multiview scene FBO for
+	// the lifetime of the session, so this restores the scene target.
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+}
+
+void FsVrDrawHudQuad(const float corner[12])
+{
+	if(NULL==fsHudQuadRenderer)
+	{
+		return;
+	}
+
+	const float *hud=FsVrHudDataPointer();
+	GLuint hudTexArray=(GLuint)hud[2];
+
+	// Restore the scene (eye-0) viewport for the composite into the multiview
+	// framebuffer (FsVrEndHudRender left the HUD-texture-sized viewport).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetHudQuadRendererProjectionStereofv(fsHudQuadRenderer,proj);
+	YsGLSLSetHudQuadRendererModelViewfv(fsHudQuadRenderer,modelView);
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // HUD glass draws over the scene regardless of depth.
+	glDisable(GL_CULL_FACE);
+
+	YsGLSLRenderHudQuad(fsHudQuadRenderer,corner,hudTexArray);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
 void FsBeginDrawShadow(void)  // Set polygon offset -1,-1 and enable.
 {
 	glEnable(GL_POLYGON_OFFSET_FILL);
@@ -819,6 +957,12 @@ void FsSetCameraPosition(const YsVec3 &pos,const YsAtt3 &att,YSBOOL zClear)
 	GLfloat modelViewMat[16];
 	tfm.GetOpenGlCompatibleMatrix(modelViewMat);
 	YsGLSLSetShared3DRendererModelView(modelViewMat);
+
+	// Cache the world->eye0 modelView for the VR HUD-quad composite.
+	for(int i=0; i<16; ++i)
+	{
+		fsLastSceneModelView[i]=modelViewMat[i];
+	}
 
 	auto fsBitmapFontRenderer=YsGLSLSharedBitmapFontRenderer();
 	YsGLSLUseBitmapFontRenderer(fsBitmapFontRenderer);
