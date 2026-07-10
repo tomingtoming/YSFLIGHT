@@ -6441,12 +6441,19 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				camToWorld.Mul(right,YsXVec(),0.0);
 
 				const double dist=1.0;   // 1 m in front of the eye.
-				const double half=0.45;  // 0.9 m x 0.9 m glass (~48 deg at 1 m).
+				const double halfW=0.45; // 0.9 m wide glass (~48 deg at 1 m).
+				// Height follows the HUD texture's aspect ratio: the engine
+				// lays the HUD out for the aspect it is given, and side/bottom
+				// elements (bank indicator, compass rose) assume a wide
+				// screen -- a square glass clips them at the edges.
+				const float *hudData=FsVrHudDataPointer();
+				const double aspect=(0.0<hudData[3] && 0.0<hudData[4] ? (double)hudData[4]/(double)hudData[3] : 1.0);
+				const double halfH=halfW*aspect;
 				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist;
-				const YsVec3 bl=center-right*half-up*half;
-				const YsVec3 br=center+right*half-up*half;
-				const YsVec3 tr=center+right*half+up*half;
-				const YsVec3 tl=center-right*half+up*half;
+				const YsVec3 bl=center-right*halfW-up*halfH;
+				const YsVec3 br=center+right*halfW-up*halfH;
+				const YsVec3 tr=center+right*halfW+up*halfH;
+				const YsVec3 tl=center-right*halfW+up*halfH;
 				const float corner[12]=
 				{
 					(float)bl.x(),(float)bl.y(),(float)bl.z(),
