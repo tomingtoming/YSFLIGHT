@@ -6497,6 +6497,59 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				FsVrDrawHudQuad(corner);
 			}
 		}
+
+		// VR in-flight GUI dialog: same off-screen-pass-then-composite shape as
+		// the HUD above, but only actually draws a quad while a modal in-flight
+		// dialog (autopilot menu, radio-comm menus, replay/continue dialogs,
+		// ...) is open (SimDrawVrGui writes guiData[5]).  In plain (non-VR)
+		// play these dialogs draw straight to the 2D screen every frame
+		// (SimDrawGuiDialog, called once per frame regardless of whether a
+		// dialog is actually open); here the off-screen pass also runs every
+		// frame the GUI composite is enabled (cheap: FsGuiDialog::Show is a
+		// no-op when there is nothing to show), so a dialog opening
+		// mid-flight is picked up the very next frame with no extra wiring.
+		const float *guiData=FsVrGuiDataPointer();
+		if(0.0f!=guiData[0])
+		{
+			FsVrBeginGuiRender();
+			SimDrawVrGui();
+			FsVrEndGuiRender();
+
+			guiData=FsVrGuiDataPointer(); // SimDrawVrGui wrote [5],[6]; re-fetch for clarity.
+			if(0.0f!=guiData[5])
+			{
+				// Cockpit-anchored quad, closer/lower than the HUD glass so it
+				// reads as a floating panel in front of it (drawn after, i.e.
+				// on top -- see FsVrDrawGuiQuad's depth-test-off blend).
+				YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+				if(YSOK==camToWorld.Invert())
+				{
+					YsVec3 fwd,up,right;
+					camToWorld.Mul(fwd,YsZVec(),0.0);
+					camToWorld.Mul(up,YsYVec(),0.0);
+					camToWorld.Mul(right,YsXVec(),0.0);
+
+					const double dist=0.9;    // Slightly closer than the HUD glass (1 m).
+					const double halfW=0.35;  // 0.7 m wide panel.
+					const double aspect=(0.0<guiData[3] && 0.0<guiData[4] ? (double)guiData[4]/(double)guiData[3] : 1.0);
+					const double halfH=halfW*aspect;
+					const double dropBelowEye=0.12; // Sits a bit below the eye axis, like a lowered kneeboard/MFD.
+					const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist-up*dropBelowEye;
+					const YsVec3 bl=center-right*halfW-up*halfH;
+					const YsVec3 br=center+right*halfW-up*halfH;
+					const YsVec3 tr=center+right*halfW+up*halfH;
+					const YsVec3 tl=center-right*halfW+up*halfH;
+					const float corner[12]=
+					{
+						(float)bl.x(),(float)bl.y(),(float)bl.z(),
+						(float)br.x(),(float)br.y(),(float)br.z(),
+						(float)tr.x(),(float)tr.y(),(float)tr.z(),
+						(float)tl.x(),(float)tl.y(),(float)tl.z()
+					};
+					FsVrDrawGuiQuad(corner);
+				}
+			}
+		}
 	}
 	else if(0!=FsVrIsActive())
 	{
@@ -6908,6 +6961,62 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 
 		SimDrawRadar(actualViewMode);
 	}
+}
+
+void FsSimulation::SimDrawVrGui(void) const
+{
+	// Off-screen 2D in-flight-GUI pass for single-pass-stereo VR.  The caller
+	// (SimDrawAllScreen) has bound the two-layer multiview GUI framebuffer via
+	// FsVrBeginGuiRender, which also made FsGetWindowSize / the 2D viewport
+	// report the GUI texture size.  Unlike SimDrawVrHud's legacy pixel-space
+	// HUD renderer, the FsGuiDialog family lays out its items in a small,
+	// absolute, WINDOW-SIZE-INDEPENDENT pixel space (FsGuiDialog::Fit sizes
+	// the dialog to its own contents starting at dlgX0/dlgY0, which default
+	// to (0,0) -- see FsGuiDialog::Initialize/Fit in fsguidialog.cpp), so
+	// there is no analogous stale-area re-fit needed here: whatever the
+	// dialog's Show() draws lands in the top-left corner of the GUI texture,
+	// same as it would in the top-left corner of the real window in flat play.
+	//
+	// This mirrors SimDrawGuiDialog's body (FsSet2DDrawing / show whichever
+	// dialog is current / FsFlushScene) -- see that function's doc comment --
+	// but additionally reports which dialog (if any) is visible into
+	// FsVrGuiDataPointer(), which the web layer reads to decide whether to
+	// draw the GUI quad and how to route hand-controller input to it.
+	FsSet2DDrawing();
+
+	YSBOOL anyVisible=YSFALSE;
+
+	if(showReplayDlg==YSTRUE && replayDlg!=NULL)
+	{
+		replayDlg->Show();
+		anyVisible=YSTRUE;
+	}
+
+	FsGuiInFlightDialog *inFltDlg=NULL;
+	if(FsIsMainWindowActive()==YSTRUE)
+	{
+		inFltDlg=GetCurrentInFlightDialog();
+		if(NULL!=inFltDlg)
+		{
+			inFltDlg->Show();
+			anyVisible=YSTRUE;
+		}
+	}
+
+	if(contDlg!=NULL)
+	{
+		contDlg->Show();
+		anyVisible=YSTRUE;
+	}
+
+	FsFlushScene();
+
+	float *guiData=FsVrGuiDataPointer();
+	guiData[5]=(YSTRUE==anyVisible ? 1.0f : 0.0f);
+	guiData[6]=
+	    (NULL!=inFltDlg &&
+	     (inFltDlg==autoPilotDlg || inFltDlg==autoPilotVTOLDlg || inFltDlg==autoPilotHelicopterDlg)) ?
+	    1.0f : 0.0f;
 }
 
 void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const

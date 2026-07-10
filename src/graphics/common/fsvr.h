@@ -77,13 +77,56 @@ extern "C"
 	    convention as the other fsvr shared blocks). */
 	float *FsVrHudDataPointer(void);
 
-	/*! Transient override, set only while the HUD off-screen pass is running,
-	    so that the 2D coordinate machinery (FsSetupViewport / FsGetWindowSize)
-	    believes the "screen" is the HUD texture (texW x texH) instead of the
-	    real window / eye buffer.  Cleared immediately after the pass. */
+	/*! Transient override, set only while the HUD (or GUI-dialog, see
+	    FsVrGuiDataPointer below) off-screen pass is running, so that the 2D
+	    coordinate machinery (FsSetupViewport / FsGetWindowSize) believes the
+	    "screen" is the off-screen texture (texW x texH) instead of the real
+	    window / eye buffer.  Cleared immediately after each pass.  Shared by
+	    both off-screen passes: they never run concurrently within a frame
+	    (HUD pass fully brackets/ends before the GUI pass begins), so one
+	    active/size pair is enough -- no need for a second, parallel set of
+	    these functions just for the GUI pass. */
 	void FsVrSetHudRenderTarget(int active,int w,int h);
 	int FsVrHudRenderTargetActive(void);
 	void FsVrGetHudRenderSize(int *w,int *h);
+
+	/*! In-flight GUI-dialog composite state block (8 floats), mirroring
+	    FsVrHudDataPointer above.  The VR runtime (the WebXR layer) writes
+	    [0..4] when single-pass-stereo mode engages; the graphics back-end /
+	    simulation core read/write the rest to render whatever modal in-flight
+	    dialog is currently open (the autopilot menu, radio-comm menus, the
+	    replay/continue dialogs, etc. -- see FsSimulation::SimDrawGuiDialog)
+	    into an off-screen two-layer multiview framebuffer and composite it
+	    onto a second, GUI-anchored quad, the same way FsVrHudDataPointer's
+	    block drives the flying HUD.  In plain (non-VR) play these dialogs
+	    already draw straight to the 2D screen (SimDrawGuiDialog, guarded by
+	    0==FsVrIsActive()); in VR that whole call is skipped today, which
+	    is why a dialog that pops up mid-flight (e.g. the autopilot menu,
+	    Backspace/FSBTF_OPENAUTOPILOTMENU) is invisible and un-closeable --
+	    this block is what makes it visible again.
+	      [0] enable       (0/1, written by the web layer)
+	      [1] guiFbo       (GL framebuffer name, two-layer multiview FBO)
+	      [2] guiTexArray  (GL_TEXTURE_2D_ARRAY name, RGBA8, 2 layers)
+	      [3] texWidth
+	      [4] texHeight
+	      [5] dialogVisible (0/1, WRITTEN BY THE ENGINE each frame: 1 while a
+	          modal in-flight dialog / the replay dialog / the continue
+	          dialog is being rendered into the GUI texture this frame, 0
+	          otherwise.  The web layer reads this to know whether to draw
+	          the GUI quad at all, and to route hand-controller input to the
+	          dialog instead of its normal flight-control meaning.)
+	      [6] apMenu        (0/1, WRITTEN BY THE ENGINE: 1 iff the currently
+	          open dialog is one of the autopilot menus (airplane / VTOL /
+	          helicopter), which are known to accept the direct hotkeys
+	          Digit1..Digit5,Digit0,Escape (see FsGuiAutoPilotDialog /
+	          FsGuiAutoPilotVTOLDialog / FsGuiAutoPilotHelicopterDialog's
+	          ProcessRawKeyInput in fsguiinfltdlg.cpp).  Other in-flight
+	          dialogs use per-instance hotkeys or mouse-only interaction, so
+	          the web layer only offers the stick-sector-to-hotkey mapping
+	          when this is set; otherwise it only offers a generic
+	          Escape-to-close action.
+	      [7] reserved (0) */
+	float *FsVrGuiDataPointer(void);
 
 	/*! Aircraft-state block (8 floats) for the VR radial function-dial's live
 	    readouts (RIGHT_DIAL/LEFT_DIAL in fswebxr.cpp): the dial shows the

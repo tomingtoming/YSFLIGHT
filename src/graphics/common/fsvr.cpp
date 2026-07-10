@@ -117,6 +117,13 @@ extern "C" float *FsVrAircraftStateDataPointer(void)
 	return fsVrAircraftState;
 }
 
+static float fsVrGuiData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrGuiDataPointer(void)
+{
+	return fsVrGuiData;
+}
+
 void FsVrMarkSimDrawn(void)
 {
 	if(fsVrSimDrawnFrame<0x40000000)

@@ -895,6 +895,17 @@ protected:
 	    the HUD texture.  Caller has already bound the off-screen HUD framebuffer
 	    (FsVrBeginHudRender). */
 	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const;
+	/*! VR single-pass-stereo in-flight GUI dialog: draws whatever modal
+	    in-flight dialog (autopilot menu, radio-comm menus, replay/continue
+	    dialogs, ...) is currently open, with the 2D coordinate system sized
+	    to the GUI texture.  Caller has already bound the off-screen GUI
+	    framebuffer (FsVrBeginGuiRender).  Writes FsVrGuiDataPointer()[5]
+	    (dialogVisible) and [6] (apMenu) so the web layer knows whether/how
+	    to composite the quad and route controller input to it.  Mirrors
+	    SimDrawGuiDialog's non-VR body (see its doc comment) but does not
+	    call FsSet2DDrawing/FsFlushScene at the SAME viewport size -- the
+	    caller's off-screen pass already did the viewport override. */
+	void SimDrawVrGui(void) const;
 	void SimDrawShadowMap(const ActualViewMode &actualViewMode) const;
 	void SimDrawGuiDialog(void) const;
 	void SimDrawScreenZBufferSensitive(
