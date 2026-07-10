@@ -6822,6 +6822,28 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 	// interior stays in the world scene pass.
 	const FsAirplane *playerPlane=GetPlayerAirplane();
 
+	// hud (FsHeadUpDisplay, the legacy pixel-space HUD renderer used only by
+	// the VR combiner-glass path below) stores its layout as absolute pixel
+	// coordinates in lupX/lupY/wid/hei, set by SetAreaByCenter.  The only
+	// other caller of SetAreaByCenter is SimDrawPrepare, which runs once per
+	// frame during the ordinary scene pass (SimDrawScreen), i.e. BEFORE
+	// FsVrBeginHudRender/FsSetWindowSizeOverride switches FsGetWindowSize to
+	// report the off-screen HUD texture size.  Left stale, hud's fields hold
+	// pixel coordinates sized for the real eye/canvas viewport while
+	// FsSet2DDrawing below configures the renderer for the actual (smaller,
+	// square) HUD texture -- everything hud->Draw emits is then off by the
+	// eye/HUD size ratio, reading as a layout shifted toward the texture's
+	// center and clipped at its top/right edge.  Recompute the area here,
+	// now that the HUD-texture-size override is active, using the same
+	// formula as SimDrawPrepare so both passes agree on the reference frame.
+	{
+		int wid,hei,sizx,sizy;
+		FsGetWindowSize(wid,hei);
+		sizx=hei*4/3;
+		sizy=hei;
+		hud->SetAreaByCenter(wid/2,hei*2/3,sizx*2/3,sizy*2/3);
+	}
+
 	FsSet2DDrawing();
 
 	if(NULL!=playerPlane &&
