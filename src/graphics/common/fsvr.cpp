@@ -110,6 +110,13 @@ extern "C" void FsVrGetHudRenderSize(int *w,int *h)
 	}
 }
 
+static float fsVrAircraftState[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrAircraftStateDataPointer(void)
+{
+	return fsVrAircraftState;
+}
+
 void FsVrMarkSimDrawn(void)
 {
 	if(fsVrSimDrawnFrame<0x40000000)

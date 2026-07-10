@@ -84,6 +84,42 @@ extern "C"
 	void FsVrSetHudRenderTarget(int active,int w,int h);
 	int FsVrHudRenderTargetActive(void);
 	void FsVrGetHudRenderSize(int *w,int *h);
+
+	/*! Aircraft-state block (8 floats) for the VR radial function-dial's live
+	    readouts (RIGHT_DIAL/LEFT_DIAL in fswebxr.cpp): the dial shows the
+	    state a sector's key press WOULD change before the pilot presses it.
+	    Filled once per sim frame, for the player's aircraft only, while VR is
+	    active (FsSimulation::SimDrawAllScreen, right after
+	    SimMakeUpCockpitIndicationSet -- the same FsCockpitIndicationSet /
+	    FsAirplaneProperty accessors that already drive the flat HUD's
+	    LDG/BRK/FLP/SPL readouts and DrawAmmo).
+	      [0] valid     (0/1; 0 when there is no player airplane -- e.g. a
+	                     ground-vehicle "player" or no active aircraft -- the
+	                     rest of the block is then stale and must not be
+	                     displayed)
+	      [1] gear      (0.0=up .. 1.0=down; FsAirplaneProperty::
+	                     GetLandingGear(), same source as the HUD's DrawGear.
+	                     Transitional values are real: the gear takes time to
+	                     travel, this is not just 0 or 1)
+	      [2] brake     (0.0=off / 1.0=on; cockpitIndicationSet.inst.brake,
+	                     i.e. GetBrake() thresholded at 0.5. KeyG's dial
+	                     neighbor KeyB (FSBTF_SPOILERBRAKE) toggles ctlBrake
+	                     AND ctlSpoiler together in one call
+	                     (FsAirplaneProperty::ToggleBrake), so this is also
+	                     the airbrake/spoiler state -- one button, one value)
+	      [3] flap      (0.0..1.0; GetFlap(), same source as the HUD's
+	                     DrawFlap)
+	      [4] wpnType   (FSWEAPONTYPE as float; GetWeaponOfChoice(). See
+	                     fsdef.h's FSWEAPON_* enum: 0=GUN, 1=AIM9, 2=AGM65,
+	                     3=BOMB, 4=ROCKET, 5=FLARE, 6=AIM120, 7=BOMB250,
+	                     8=SMOKE, 9=BOMB500HD, 10=AIM9X, 11=FLAREPOD,
+	                     12=FUELTANK; FSWEAPON_NULL=127 if no weapon)
+	      [5] wpnCount  (remaining count of the selected weapon;
+	                     GetNumWeapon(woc), plus GetNumPilotControlledTurretBullet()
+	                     for FSWEAPON_GUN -- the same computation the flat
+	                     HUD's own ammo readout (DrawAmmo) uses for the gun)
+	      [6..7] reserved (0) */
+	float *FsVrAircraftStateDataPointer(void);
 }
 
 const int FsVrNumEye=2;

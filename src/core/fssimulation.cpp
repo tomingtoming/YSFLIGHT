@@ -6381,6 +6381,39 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 	FsCockpitIndicationSet cockpitIndicationSet;
 	SimMakeUpCockpitIndicationSet(cockpitIndicationSet);
 
+	// VR dial live-state (fsvr.h): reuses the same FsCockpitIndicationSet /
+	// FsAirplaneProperty accessors that already drive the flat HUD's
+	// LDG/BRK/FLP/SPL readouts and DrawAmmo -- see FsVrAircraftStateDataPointer's
+	// doc comment for the block layout.  Filled only while VR is active; the
+	// web layer's dial redraws on any change in this block.
+	if(0!=FsVrIsActive())
+	{
+		float *vrState=FsVrAircraftStateDataPointer();
+		const FsAirplane *playerPlane=GetPlayerAirplane();
+		if(NULL!=playerPlane)
+		{
+			vrState[0]=1.0f;
+			vrState[1]=(float)cockpitIndicationSet.inst.gearPos;
+			vrState[2]=(float)cockpitIndicationSet.inst.brake;
+			vrState[3]=(float)cockpitIndicationSet.inst.flaps;
+
+			const FSWEAPONTYPE woc=playerPlane->Prop().GetWeaponOfChoice();
+			int wpnCount=playerPlane->Prop().GetNumWeapon(woc);
+			if(FSWEAPON_GUN==woc)
+			{
+				wpnCount+=playerPlane->Prop().GetNumPilotControlledTurretBullet();
+			}
+			vrState[4]=(float)woc;
+			vrState[5]=(float)wpnCount;
+			vrState[6]=0.0f;
+			vrState[7]=0.0f;
+		}
+		else
+		{
+			vrState[0]=0.0f;
+		}
+	}
+
 #ifdef CRASHINVESTIGATION_S8_LEVEL2
 	printf("S8-0\n");
 #endif
