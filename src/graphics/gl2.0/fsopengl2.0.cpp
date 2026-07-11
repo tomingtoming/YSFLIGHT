@@ -921,6 +921,78 @@ void FsVrDrawHudQuad(const float corner[12])
 	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
 }
 
+// ---- VR single-pass-stereo in-flight-GUI-dialog composite ----------------
+// Same shape as the HUD trio above, driven by FsVrGuiDataPointer instead of
+// FsVrHudDataPointer.  FsVrSetHudRenderTarget/FsSetWindowSizeOverride are
+// reused as-is (see fsvr.h's doc comment on FsVrSetHudRenderTarget): the HUD
+// and GUI off-screen passes never run concurrently within a frame.
+void FsVrBeginGuiRender(void)
+{
+	const float *gui=FsVrGuiDataPointer();
+	GLuint guiFbo=(GLuint)gui[1];
+	int texW=(int)gui[3];
+	int texH=(int)gui[4];
+
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,guiFbo);
+	glViewport(0,0,texW,texH);
+	glClearColor(0.0f,0.0f,0.0f,0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void FsVrEndGuiRender(void)
+{
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
+	// The web layer redirects a bind(0) to the active multiview scene FBO for
+	// the lifetime of the session, so this restores the scene target.
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+}
+
+void FsVrDrawGuiQuad(const float corner[12])
+{
+	if(NULL==fsHudQuadRenderer)
+	{
+		return;
+	}
+
+	const float *gui=FsVrGuiDataPointer();
+	GLuint guiTexArray=(GLuint)gui[2];
+
+	// Restore the scene (eye-0) viewport for the composite into the multiview
+	// framebuffer (FsVrEndGuiRender left the GUI-texture-sized viewport).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetHudQuadRendererProjectionStereofv(fsHudQuadRenderer,proj);
+	YsGLSLSetHudQuadRendererModelViewfv(fsHudQuadRenderer,modelView);
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // GUI glass draws over the scene (and over the HUD quad) regardless of depth.
+	glDisable(GL_CULL_FACE);
+
+	YsGLSLRenderHudQuad(fsHudQuadRenderer,corner,guiTexArray);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
 void FsBeginDrawShadow(void)  // Set polygon offset -1,-1 and enable.
 {
 	glEnable(GL_POLYGON_OFFSET_FILL);

@@ -6381,6 +6381,39 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 	FsCockpitIndicationSet cockpitIndicationSet;
 	SimMakeUpCockpitIndicationSet(cockpitIndicationSet);
 
+	// VR dial live-state (fsvr.h): reuses the same FsCockpitIndicationSet /
+	// FsAirplaneProperty accessors that already drive the flat HUD's
+	// LDG/BRK/FLP/SPL readouts and DrawAmmo -- see FsVrAircraftStateDataPointer's
+	// doc comment for the block layout.  Filled only while VR is active; the
+	// web layer's dial redraws on any change in this block.
+	if(0!=FsVrIsActive())
+	{
+		float *vrState=FsVrAircraftStateDataPointer();
+		const FsAirplane *playerPlane=GetPlayerAirplane();
+		if(NULL!=playerPlane)
+		{
+			vrState[0]=1.0f;
+			vrState[1]=(float)cockpitIndicationSet.inst.gearPos;
+			vrState[2]=(float)cockpitIndicationSet.inst.brake;
+			vrState[3]=(float)cockpitIndicationSet.inst.flaps;
+
+			const FSWEAPONTYPE woc=playerPlane->Prop().GetWeaponOfChoice();
+			int wpnCount=playerPlane->Prop().GetNumWeapon(woc);
+			if(FSWEAPON_GUN==woc)
+			{
+				wpnCount+=playerPlane->Prop().GetNumPilotControlledTurretBullet();
+			}
+			vrState[4]=(float)woc;
+			vrState[5]=(float)wpnCount;
+			vrState[6]=0.0f;
+			vrState[7]=0.0f;
+		}
+		else
+		{
+			vrState[0]=0.0f;
+		}
+	}
+
 #ifdef CRASHINVESTIGATION_S8_LEVEL2
 	printf("S8-0\n");
 #endif
@@ -6440,13 +6473,42 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				camToWorld.Mul(up,YsYVec(),0.0);
 				camToWorld.Mul(right,YsXVec(),0.0);
 
-				const double dist=1.0;   // 1 m in front of the eye.
-				const double half=0.45;  // 0.9 m x 0.9 m glass (~48 deg at 1 m).
+				// Gunsight-parallax stopgap: the HUD glass (and the gunsight
+				// reticle drawn on it) is a single quad shared by both eyes,
+				// so it necessarily sits at a FINITE distance -- but the
+				// thing it is meant to align with (a bullet/gun-line path,
+				// or a distant target) is effectively at infinity. At the
+				// previous dist=1.0m, that mismatch reads as ~1.8deg of
+				// binocular parallax between the reticle and where the
+				// pilot's eyes actually converge on a real target
+				// (atan(halfEyeSeparation/dist) with a ~3cm inter-eye
+				// baseline) -- enough to make the gunsight visibly swim
+				// relative to what it's supposed to be aimed at. Pushing the
+				// glass out to 20m while scaling halfW proportionally (same
+				// 20x factor) keeps the EXACT SAME apparent size/position in
+				// each eye's view (the quad subtends the same angle -- pure
+				// distance/size trade, no visual change to a cyclopean
+				// viewer) but cuts the parallax to
+				// atan(0.03/2/20)=~0.09deg, an order of magnitude better and
+				// close enough to unnoticeable in practice. This is a
+				// stopgap, not the real fix: the true zero-parallax solution
+				// is a per-eye reticle layer (rendered twice, once per eye's
+				// actual projection, instead of one shared quad) -- out of
+				// scope here, tracked as a follow-up.
+				const double dist=20.0;  // 20 m in front of the eye (was 1 m -- see the parallax note above).
+				const double halfW=0.45*20.0; // Scaled proportionally with dist: same apparent size as the old 1m/0.45 glass.
+				// Height follows the HUD texture's aspect ratio: the engine
+				// lays the HUD out for the aspect it is given, and side/bottom
+				// elements (bank indicator, compass rose) assume a wide
+				// screen -- a square glass clips them at the edges.
+				const float *hudData=FsVrHudDataPointer();
+				const double aspect=(0.0<hudData[3] && 0.0<hudData[4] ? (double)hudData[4]/(double)hudData[3] : 1.0);
+				const double halfH=halfW*aspect;
 				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist;
-				const YsVec3 bl=center-right*half-up*half;
-				const YsVec3 br=center+right*half-up*half;
-				const YsVec3 tr=center+right*half+up*half;
-				const YsVec3 tl=center-right*half+up*half;
+				const YsVec3 bl=center-right*halfW-up*halfH;
+				const YsVec3 br=center+right*halfW-up*halfH;
+				const YsVec3 tr=center+right*halfW+up*halfH;
+				const YsVec3 tl=center-right*halfW+up*halfH;
 				const float corner[12]=
 				{
 					(float)bl.x(),(float)bl.y(),(float)bl.z(),
@@ -6455,6 +6517,79 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 					(float)tl.x(),(float)tl.y(),(float)tl.z()
 				};
 				FsVrDrawHudQuad(corner);
+			}
+		}
+
+		// VR in-flight GUI dialog: same off-screen-pass-then-composite shape as
+		// the HUD above, but only actually draws a quad while a modal in-flight
+		// dialog (autopilot menu, radio-comm menus, replay/continue dialogs,
+		// ...) is open AND the quad composite is enabled (guiData[0] --
+		// opt-in, see ysfwVrOptions.guiPanel in fswebxr.cpp; the selection
+		// guide alone is enough to operate most in-flight menus without it).
+		// dialogVisible/apMenu/the menu-label block are computed every frame
+		// regardless (SimComputeVrGuiState), so the web layer's routing and
+		// guide stay correct even with the quad off.  In plain (non-VR) play
+		// these dialogs draw straight to the 2D screen every frame
+		// (SimDrawGuiDialog, called once per frame regardless of whether a
+		// dialog is actually open); here the off-screen pass also runs every
+		// frame the GUI composite is enabled (cheap: FsGuiDialog::Show is a
+		// no-op when there is nothing to show), so a dialog opening
+		// mid-flight is picked up the very next frame with no extra wiring.
+		SimComputeVrGuiState();
+
+		const float *guiData=FsVrGuiDataPointer();
+		if(0.0f!=guiData[0])
+		{
+			FsVrBeginGuiRender();
+			SimDrawVrGui();
+			FsVrEndGuiRender();
+
+			if(0.0f!=guiData[5])
+			{
+				// Cockpit-anchored quad, closer/lower than the HUD glass so it
+				// reads as a floating panel in front of it (drawn after, i.e.
+				// on top -- see FsVrDrawGuiQuad's depth-test-off blend).
+				YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+				if(YSOK==camToWorld.Invert())
+				{
+					YsVec3 fwd,up,right;
+					camToWorld.Mul(fwd,YsZVec(),0.0);
+					camToWorld.Mul(up,YsYVec(),0.0);
+					camToWorld.Mul(right,YsXVec(),0.0);
+
+					// Same proportional push-out as the HUD glass above (same
+					// 20x factor, see its parallax comment): a menu the pilot
+					// reads is far less parallax-sensitive than a gunsight
+					// they aim through, but there is no cost to fixing it too
+					// -- scaling dist and halfW (and dropBelowEye, so the
+					// panel keeps the SAME angular "a bit below the eye axis"
+					// offset) together by the same factor keeps the exact
+					// same apparent size/position, just farther away. Kept
+					// proportionally CLOSER than the HUD glass (0.9x its
+					// distance, same ratio as before) purely for the
+					// "floating panel in front of the glass" depth feel --
+					// note draw ORDER (this quad composites after the HUD
+					// quad, both with depth test off) is what actually keeps
+					// it visually on top, not this distance.
+					const double dist=0.9*20.0;
+					const double halfW=0.35*20.0;
+					const double aspect=(0.0<guiData[3] && 0.0<guiData[4] ? (double)guiData[4]/(double)guiData[3] : 1.0);
+					const double halfH=halfW*aspect;
+					const double dropBelowEye=0.12*20.0; // Sits a bit below the eye axis, like a lowered kneeboard/MFD.
+					const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist-up*dropBelowEye;
+					const YsVec3 bl=center-right*halfW-up*halfH;
+					const YsVec3 br=center+right*halfW-up*halfH;
+					const YsVec3 tr=center+right*halfW+up*halfH;
+					const YsVec3 tl=center-right*halfW+up*halfH;
+					const float corner[12]=
+					{
+						(float)bl.x(),(float)bl.y(),(float)bl.z(),
+						(float)br.x(),(float)br.y(),(float)br.z(),
+						(float)tr.x(),(float)tr.y(),(float)tr.z(),
+						(float)tl.x(),(float)tl.y(),(float)tl.z()
+					};
+					FsVrDrawGuiQuad(corner);
+				}
 			}
 		}
 	}
@@ -6822,6 +6957,28 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 	// interior stays in the world scene pass.
 	const FsAirplane *playerPlane=GetPlayerAirplane();
 
+	// hud (FsHeadUpDisplay, the legacy pixel-space HUD renderer used only by
+	// the VR combiner-glass path below) stores its layout as absolute pixel
+	// coordinates in lupX/lupY/wid/hei, set by SetAreaByCenter.  The only
+	// other caller of SetAreaByCenter is SimDrawPrepare, which runs once per
+	// frame during the ordinary scene pass (SimDrawScreen), i.e. BEFORE
+	// FsVrBeginHudRender/FsSetWindowSizeOverride switches FsGetWindowSize to
+	// report the off-screen HUD texture size.  Left stale, hud's fields hold
+	// pixel coordinates sized for the real eye/canvas viewport while
+	// FsSet2DDrawing below configures the renderer for the actual (smaller,
+	// square) HUD texture -- everything hud->Draw emits is then off by the
+	// eye/HUD size ratio, reading as a layout shifted toward the texture's
+	// center and clipped at its top/right edge.  Recompute the area here,
+	// now that the HUD-texture-size override is active, using the same
+	// formula as SimDrawPrepare so both passes agree on the reference frame.
+	{
+		int wid,hei,sizx,sizy;
+		FsGetWindowSize(wid,hei);
+		sizx=hei*4/3;
+		sizy=hei;
+		hud->SetAreaByCenter(wid/2,hei*2/3,sizx*2/3,sizy*2/3);
+	}
+
 	FsSet2DDrawing();
 
 	if(NULL!=playerPlane &&
@@ -6846,6 +7003,139 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 
 		SimDrawRadar(actualViewMode);
 	}
+}
+
+void FsSimulation::SimDrawVrGui(void) const
+{
+	// Off-screen 2D in-flight-GUI pass for single-pass-stereo VR.  The caller
+	// (SimDrawAllScreen) has bound the two-layer multiview GUI framebuffer via
+	// FsVrBeginGuiRender, which also made FsGetWindowSize / the 2D viewport
+	// report the GUI texture size.  Unlike SimDrawVrHud's legacy pixel-space
+	// HUD renderer, the FsGuiDialog family lays out its items in a small,
+	// absolute, WINDOW-SIZE-INDEPENDENT pixel space (FsGuiDialog::Fit sizes
+	// the dialog to its own contents starting at dlgX0/dlgY0, which default
+	// to (0,0) -- see FsGuiDialog::Initialize/Fit in fsguidialog.cpp), so
+	// there is no analogous stale-area re-fit needed here: whatever the
+	// dialog's Show() draws lands in the top-left corner of the GUI texture,
+	// same as it would in the top-left corner of the real window in flat play.
+	//
+	// This mirrors SimDrawGuiDialog's body (FsSet2DDrawing / show whichever
+	// dialog is current / FsFlushScene) -- see that function's doc comment.
+	// dialogVisible/apMenu/the menu-label block are NOT written here anymore
+	// -- SimComputeVrGuiState (called unconditionally from SimDrawAllScreen,
+	// whether or not this function ever runs) owns that now, so they stay
+	// correct even when the GUI quad composite is disabled (the default).
+	FsSet2DDrawing();
+
+	if(showReplayDlg==YSTRUE && replayDlg!=NULL)
+	{
+		replayDlg->Show();
+	}
+
+	if(FsIsMainWindowActive()==YSTRUE)
+	{
+		FsGuiInFlightDialog *inFltDlg=GetCurrentInFlightDialog();
+		if(NULL!=inFltDlg)
+		{
+			inFltDlg->Show();
+		}
+	}
+
+	if(contDlg!=NULL)
+	{
+		contDlg->Show();
+	}
+
+	FsFlushScene();
+}
+
+void FsSimulation::SimComputeVrGuiState(void) const
+{
+	// Same dialog-selection priority as SimDrawVrGui/SimDrawGuiDialog above,
+	// but this only ever READS dialog state (no Show() calls), so it is
+	// cheap enough to run every VR frame regardless of whether the GUI quad
+	// composite is enabled -- see fsvr.h's FsVrGuiDataPointer/
+	// FsVrGuiMenuPointer doc comments for why that decoupling matters.
+	YSBOOL anyVisible=YSFALSE;
+	const FsGuiDialog *menuSrc=NULL;
+	FsGuiInFlightDialog *inFltDlg=NULL;
+
+	if(showReplayDlg==YSTRUE && replayDlg!=NULL)
+	{
+		anyVisible=YSTRUE;
+		menuSrc=replayDlg;
+	}
+
+	if(FsIsMainWindowActive()==YSTRUE)
+	{
+		inFltDlg=GetCurrentInFlightDialog();
+		if(NULL!=inFltDlg)
+		{
+			anyVisible=YSTRUE;
+			if(NULL==menuSrc)
+			{
+				menuSrc=inFltDlg;
+			}
+		}
+	}
+
+	if(contDlg!=NULL)
+	{
+		anyVisible=YSTRUE;
+		if(NULL==menuSrc)
+		{
+			menuSrc=contDlg;
+		}
+	}
+
+	float *guiData=FsVrGuiDataPointer();
+	guiData[5]=(YSTRUE==anyVisible ? 1.0f : 0.0f);
+	// See fsvr.h's FsVrGuiDataPointer doc comment: this now covers every
+	// in-flight dialog whose ProcessRawKeyInput genuinely dispatches on
+	// FSKEY_1.. positionally (confirmed by reading fsguiinfltdlg.cpp), not
+	// just the autopilot family -- the field is still called "apMenu" for
+	// ABI stability with existing web-layer code.
+	guiData[6]=
+	    (NULL!=inFltDlg &&
+	     (inFltDlg==autoPilotDlg ||
+	      inFltDlg==autoPilotVTOLDlg ||
+	      inFltDlg==autoPilotHelicopterDlg ||
+	      inFltDlg==callFuelTruckDlg ||
+	      inFltDlg==radioCommTargetDlg ||
+	      inFltDlg==radioCommCmdDlg ||
+	      inFltDlg==radioCommToFomDlg ||
+	      inFltDlg==atcRequestDlg ||
+	      inFltDlg==requestApproachDlg)) ?
+	    1.0f : 0.0f;
+
+	SimSerializeVrGuiMenu(menuSrc);
+}
+
+void FsSimulation::SimSerializeVrGuiMenu(const FsGuiDialog *dlg) const
+{
+	// See fsvr.h's FsVrGuiMenuPointer doc comment for the exact format and
+	// why the label text (not FsGuiDialogItem::fsKey) is the reliable
+	// source for each item's hotkey.
+	YsString buf;
+	if(NULL!=dlg)
+	{
+		const YSSIZE_T n=dlg->GetNumItem();
+		for(YSSIZE_T i=0; i<n; ++i)
+		{
+			const FsGuiDialogItem *item=dlg->GetItem(i);
+			if(NULL==item ||
+			   FSGUI_BUTTON!=item->GetItemType() ||
+			   YSTRUE!=item->IsVisible() ||
+			   YSTRUE!=item->IsEnabled())
+			{
+				continue;
+			}
+			const YsString label=item->GetLabel().GetUTF8String();
+			buf+=label;
+			buf+="\n";
+		}
+	}
+	FsVrSetGuiMenu(buf.Txt(),(int)buf.Strlen());
 }
 
 void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const

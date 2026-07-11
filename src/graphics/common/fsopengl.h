@@ -80,6 +80,17 @@ void FsVrBeginHudRender(void);
 void FsVrEndHudRender(void);
 void FsVrDrawHudQuad(const float corner[12]);
 
+// VR single-pass-stereo in-flight-GUI-dialog composite (see fsopengl2.0.cpp).
+// Same bracket/composite shape as the HUD trio above, driven by
+// FsVrGuiDataPointer (fsvr.h) instead of FsVrHudDataPointer: renders whatever
+// modal in-flight dialog is currently open into its own off-screen two-layer
+// multiview framebuffer and composites it onto a second, GUI-anchored quad.
+// Reuses the same HUD-quad GL renderer (it takes the texture array as a
+// parameter, so no second renderer instance is needed).
+void FsVrBeginGuiRender(void);
+void FsVrEndGuiRender(void);
+void FsVrDrawGuiQuad(const float corner[12]);
+
 void FsBeginDrawShadow(void);  // Set polygon offset -1,-1 and enable.
 void FsEndDrawShadow(void);    // Disable polygon offset.
 

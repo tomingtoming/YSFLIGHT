@@ -895,6 +895,35 @@ protected:
 	    the HUD texture.  Caller has already bound the off-screen HUD framebuffer
 	    (FsVrBeginHudRender). */
 	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const;
+	/*! VR single-pass-stereo in-flight GUI dialog: draws whatever modal
+	    in-flight dialog (autopilot menu, radio-comm menus, replay/continue
+	    dialogs, ...) is currently open, with the 2D coordinate system sized
+	    to the GUI texture.  Caller has already bound the off-screen GUI
+	    framebuffer (FsVrBeginGuiRender).  Only runs the actual Show() (drawing)
+	    pass -- dialogVisible/apMenu/the menu-label block are computed by
+	    SimComputeVrGuiState below, independent of whether this ever gets
+	    called (the GUI quad composite is opt-in; see ysfwVrOptions.guiPanel
+	    in fswebxr.cpp).  Mirrors SimDrawGuiDialog's non-VR body (see its doc
+	    comment) but does not call FsSet2DDrawing/FsFlushScene at the SAME
+	    viewport size -- the caller's off-screen pass already did the
+	    viewport override. */
+	void SimDrawVrGui(void) const;
+	/*! Determines which modal in-flight dialog (if any) is currently open --
+	    the SAME selection SimDrawVrGui/SimDrawGuiDialog use (replay dialog,
+	    then the per-instance in-flight dialog, then the continue dialog) --
+	    and publishes it into the fsvr.h GUI block: FsVrGuiDataPointer()[5]
+	    (dialogVisible), [6] (apMenu, see that pointer's doc comment for the
+	    full member list this now covers), and FsVrGuiMenuPointer() (the
+	    dialog's option labels, via SimSerializeVrGuiMenu).  Called once per
+	    VR frame from SimDrawAllScreen UNCONDITIONALLY (unlike SimDrawVrGui's
+	    actual rendering pass), so the web layer's dialog-routing and
+	    selection-guide stay correct even when the GUI quad itself is never
+	    drawn. */
+	void SimComputeVrGuiState(void) const;
+	/*! Serializes dlg's option labels (FsGuiDialog::GetNumItem/GetItem) into
+	    FsVrGuiMenuPointer() -- see that pointer's doc comment in fsvr.h for
+	    the exact format.  dlg may be NULL (clears the block). */
+	void SimSerializeVrGuiMenu(const class FsGuiDialog *dlg) const;
 	void SimDrawShadowMap(const ActualViewMode &actualViewMode) const;
 	void SimDrawGuiDialog(void) const;
 	void SimDrawScreenZBufferSensitive(

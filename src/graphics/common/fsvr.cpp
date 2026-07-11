@@ -1,5 +1,7 @@
 #include "fsvr.h"
 
+#include <string.h>
+
 // Deliberately dependency-free: this is plain shared state between a VR
 // runtime (the writer) and the graphics back-end / simulation core (the
 // readers).  See fsvr.h for the layout.
@@ -107,6 +109,62 @@ extern "C" void FsVrGetHudRenderSize(int *w,int *h)
 	if(nullptr!=h)
 	{
 		*h=fsVrHudRenderH;
+	}
+}
+
+static float fsVrAircraftState[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrAircraftStateDataPointer(void)
+{
+	return fsVrAircraftState;
+}
+
+static float fsVrGuiData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrGuiDataPointer(void)
+{
+	return fsVrGuiData;
+}
+
+#define FSVR_GUIMENU_CAP 4096
+
+static char fsVrGuiMenu[FSVR_GUIMENU_CAP];
+static int fsVrGuiMenuLen=0;
+static int fsVrGuiMenuVersion=0;
+
+extern "C" const char *FsVrGuiMenuPointer(void)
+{
+	return fsVrGuiMenu;
+}
+
+extern "C" int FsVrGuiMenuLength(void)
+{
+	return fsVrGuiMenuLen;
+}
+
+extern "C" int FsVrGuiMenuVersion(void)
+{
+	return fsVrGuiMenuVersion;
+}
+
+void FsVrSetGuiMenu(const char *utf8,int len)
+{
+	if(NULL==utf8 || len<0)
+	{
+		len=0;
+	}
+	if(FSVR_GUIMENU_CAP<len)
+	{
+		len=FSVR_GUIMENU_CAP;
+	}
+	if(len!=fsVrGuiMenuLen || (0<len && 0!=memcmp(fsVrGuiMenu,utf8,len)))
+	{
+		if(0<len)
+		{
+			memcpy(fsVrGuiMenu,utf8,len);
+		}
+		fsVrGuiMenuLen=len;
+		++fsVrGuiMenuVersion;
 	}
 }
 
