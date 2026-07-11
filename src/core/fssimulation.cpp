@@ -6473,8 +6473,30 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				camToWorld.Mul(up,YsYVec(),0.0);
 				camToWorld.Mul(right,YsXVec(),0.0);
 
-				const double dist=1.0;   // 1 m in front of the eye.
-				const double halfW=0.45; // 0.9 m wide glass (~48 deg at 1 m).
+				// Gunsight-parallax stopgap: the HUD glass (and the gunsight
+				// reticle drawn on it) is a single quad shared by both eyes,
+				// so it necessarily sits at a FINITE distance -- but the
+				// thing it is meant to align with (a bullet/gun-line path,
+				// or a distant target) is effectively at infinity. At the
+				// previous dist=1.0m, that mismatch reads as ~1.8deg of
+				// binocular parallax between the reticle and where the
+				// pilot's eyes actually converge on a real target
+				// (atan(halfEyeSeparation/dist) with a ~3cm inter-eye
+				// baseline) -- enough to make the gunsight visibly swim
+				// relative to what it's supposed to be aimed at. Pushing the
+				// glass out to 20m while scaling halfW proportionally (same
+				// 20x factor) keeps the EXACT SAME apparent size/position in
+				// each eye's view (the quad subtends the same angle -- pure
+				// distance/size trade, no visual change to a cyclopean
+				// viewer) but cuts the parallax to
+				// atan(0.03/2/20)=~0.09deg, an order of magnitude better and
+				// close enough to unnoticeable in practice. This is a
+				// stopgap, not the real fix: the true zero-parallax solution
+				// is a per-eye reticle layer (rendered twice, once per eye's
+				// actual projection, instead of one shared quad) -- out of
+				// scope here, tracked as a follow-up.
+				const double dist=20.0;  // 20 m in front of the eye (was 1 m -- see the parallax note above).
+				const double halfW=0.45*20.0; // Scaled proportionally with dist: same apparent size as the old 1m/0.45 glass.
 				// Height follows the HUD texture's aspect ratio: the engine
 				// lays the HUD out for the aspect it is given, and side/bottom
 				// elements (bank indicator, compass rose) assume a wide
@@ -6535,11 +6557,25 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 					camToWorld.Mul(up,YsYVec(),0.0);
 					camToWorld.Mul(right,YsXVec(),0.0);
 
-					const double dist=0.9;    // Slightly closer than the HUD glass (1 m).
-					const double halfW=0.35;  // 0.7 m wide panel.
+					// Same proportional push-out as the HUD glass above (same
+					// 20x factor, see its parallax comment): a menu the pilot
+					// reads is far less parallax-sensitive than a gunsight
+					// they aim through, but there is no cost to fixing it too
+					// -- scaling dist and halfW (and dropBelowEye, so the
+					// panel keeps the SAME angular "a bit below the eye axis"
+					// offset) together by the same factor keeps the exact
+					// same apparent size/position, just farther away. Kept
+					// proportionally CLOSER than the HUD glass (0.9x its
+					// distance, same ratio as before) purely for the
+					// "floating panel in front of the glass" depth feel --
+					// note draw ORDER (this quad composites after the HUD
+					// quad, both with depth test off) is what actually keeps
+					// it visually on top, not this distance.
+					const double dist=0.9*20.0;
+					const double halfW=0.35*20.0;
 					const double aspect=(0.0<guiData[3] && 0.0<guiData[4] ? (double)guiData[4]/(double)guiData[3] : 1.0);
 					const double halfH=halfW*aspect;
-					const double dropBelowEye=0.12; // Sits a bit below the eye axis, like a lowered kneeboard/MFD.
+					const double dropBelowEye=0.12*20.0; // Sits a bit below the eye axis, like a lowered kneeboard/MFD.
 					const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist-up*dropBelowEye;
 					const YsVec3 bl=center-right*halfW-up*halfH;
 					const YsVec3 br=center+right*halfW-up*halfH;
