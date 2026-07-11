@@ -6501,13 +6501,20 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// VR in-flight GUI dialog: same off-screen-pass-then-composite shape as
 		// the HUD above, but only actually draws a quad while a modal in-flight
 		// dialog (autopilot menu, radio-comm menus, replay/continue dialogs,
-		// ...) is open (SimDrawVrGui writes guiData[5]).  In plain (non-VR)
-		// play these dialogs draw straight to the 2D screen every frame
+		// ...) is open AND the quad composite is enabled (guiData[0] --
+		// opt-in, see ysfwVrOptions.guiPanel in fswebxr.cpp; the selection
+		// guide alone is enough to operate most in-flight menus without it).
+		// dialogVisible/apMenu/the menu-label block are computed every frame
+		// regardless (SimComputeVrGuiState), so the web layer's routing and
+		// guide stay correct even with the quad off.  In plain (non-VR) play
+		// these dialogs draw straight to the 2D screen every frame
 		// (SimDrawGuiDialog, called once per frame regardless of whether a
 		// dialog is actually open); here the off-screen pass also runs every
 		// frame the GUI composite is enabled (cheap: FsGuiDialog::Show is a
 		// no-op when there is nothing to show), so a dialog opening
 		// mid-flight is picked up the very next frame with no extra wiring.
+		SimComputeVrGuiState();
+
 		const float *guiData=FsVrGuiDataPointer();
 		if(0.0f!=guiData[0])
 		{
@@ -6515,7 +6522,6 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			SimDrawVrGui();
 			FsVrEndGuiRender();
 
-			guiData=FsVrGuiDataPointer(); // SimDrawVrGui wrote [5],[6]; re-fetch for clarity.
 			if(0.0f!=guiData[5])
 			{
 				// Cockpit-anchored quad, closer/lower than the HUD glass so it
@@ -6978,45 +6984,122 @@ void FsSimulation::SimDrawVrGui(void) const
 	// same as it would in the top-left corner of the real window in flat play.
 	//
 	// This mirrors SimDrawGuiDialog's body (FsSet2DDrawing / show whichever
-	// dialog is current / FsFlushScene) -- see that function's doc comment --
-	// but additionally reports which dialog (if any) is visible into
-	// FsVrGuiDataPointer(), which the web layer reads to decide whether to
-	// draw the GUI quad and how to route hand-controller input to it.
+	// dialog is current / FsFlushScene) -- see that function's doc comment.
+	// dialogVisible/apMenu/the menu-label block are NOT written here anymore
+	// -- SimComputeVrGuiState (called unconditionally from SimDrawAllScreen,
+	// whether or not this function ever runs) owns that now, so they stay
+	// correct even when the GUI quad composite is disabled (the default).
 	FsSet2DDrawing();
-
-	YSBOOL anyVisible=YSFALSE;
 
 	if(showReplayDlg==YSTRUE && replayDlg!=NULL)
 	{
 		replayDlg->Show();
-		anyVisible=YSTRUE;
 	}
 
-	FsGuiInFlightDialog *inFltDlg=NULL;
 	if(FsIsMainWindowActive()==YSTRUE)
 	{
-		inFltDlg=GetCurrentInFlightDialog();
+		FsGuiInFlightDialog *inFltDlg=GetCurrentInFlightDialog();
 		if(NULL!=inFltDlg)
 		{
 			inFltDlg->Show();
-			anyVisible=YSTRUE;
 		}
 	}
 
 	if(contDlg!=NULL)
 	{
 		contDlg->Show();
-		anyVisible=YSTRUE;
 	}
 
 	FsFlushScene();
+}
+
+void FsSimulation::SimComputeVrGuiState(void) const
+{
+	// Same dialog-selection priority as SimDrawVrGui/SimDrawGuiDialog above,
+	// but this only ever READS dialog state (no Show() calls), so it is
+	// cheap enough to run every VR frame regardless of whether the GUI quad
+	// composite is enabled -- see fsvr.h's FsVrGuiDataPointer/
+	// FsVrGuiMenuPointer doc comments for why that decoupling matters.
+	YSBOOL anyVisible=YSFALSE;
+	const FsGuiDialog *menuSrc=NULL;
+	FsGuiInFlightDialog *inFltDlg=NULL;
+
+	if(showReplayDlg==YSTRUE && replayDlg!=NULL)
+	{
+		anyVisible=YSTRUE;
+		menuSrc=replayDlg;
+	}
+
+	if(FsIsMainWindowActive()==YSTRUE)
+	{
+		inFltDlg=GetCurrentInFlightDialog();
+		if(NULL!=inFltDlg)
+		{
+			anyVisible=YSTRUE;
+			if(NULL==menuSrc)
+			{
+				menuSrc=inFltDlg;
+			}
+		}
+	}
+
+	if(contDlg!=NULL)
+	{
+		anyVisible=YSTRUE;
+		if(NULL==menuSrc)
+		{
+			menuSrc=contDlg;
+		}
+	}
 
 	float *guiData=FsVrGuiDataPointer();
 	guiData[5]=(YSTRUE==anyVisible ? 1.0f : 0.0f);
+	// See fsvr.h's FsVrGuiDataPointer doc comment: this now covers every
+	// in-flight dialog whose ProcessRawKeyInput genuinely dispatches on
+	// FSKEY_1.. positionally (confirmed by reading fsguiinfltdlg.cpp), not
+	// just the autopilot family -- the field is still called "apMenu" for
+	// ABI stability with existing web-layer code.
 	guiData[6]=
 	    (NULL!=inFltDlg &&
-	     (inFltDlg==autoPilotDlg || inFltDlg==autoPilotVTOLDlg || inFltDlg==autoPilotHelicopterDlg)) ?
+	     (inFltDlg==autoPilotDlg ||
+	      inFltDlg==autoPilotVTOLDlg ||
+	      inFltDlg==autoPilotHelicopterDlg ||
+	      inFltDlg==callFuelTruckDlg ||
+	      inFltDlg==radioCommTargetDlg ||
+	      inFltDlg==radioCommCmdDlg ||
+	      inFltDlg==radioCommToFomDlg ||
+	      inFltDlg==atcRequestDlg ||
+	      inFltDlg==requestApproachDlg)) ?
 	    1.0f : 0.0f;
+
+	SimSerializeVrGuiMenu(menuSrc);
+}
+
+void FsSimulation::SimSerializeVrGuiMenu(const FsGuiDialog *dlg) const
+{
+	// See fsvr.h's FsVrGuiMenuPointer doc comment for the exact format and
+	// why the label text (not FsGuiDialogItem::fsKey) is the reliable
+	// source for each item's hotkey.
+	YsString buf;
+	if(NULL!=dlg)
+	{
+		const YSSIZE_T n=dlg->GetNumItem();
+		for(YSSIZE_T i=0; i<n; ++i)
+		{
+			const FsGuiDialogItem *item=dlg->GetItem(i);
+			if(NULL==item ||
+			   FSGUI_BUTTON!=item->GetItemType() ||
+			   YSTRUE!=item->IsVisible() ||
+			   YSTRUE!=item->IsEnabled())
+			{
+				continue;
+			}
+			const YsString label=item->GetLabel().GetUTF8String();
+			buf+=label;
+			buf+="\n";
+		}
+	}
+	FsVrSetGuiMenu(buf.Txt(),(int)buf.Strlen());
 }
 
 void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const

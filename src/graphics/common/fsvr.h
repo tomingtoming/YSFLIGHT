@@ -116,17 +116,71 @@ extern "C"
 	          the GUI quad at all, and to route hand-controller input to the
 	          dialog instead of its normal flight-control meaning.)
 	      [6] apMenu        (0/1, WRITTEN BY THE ENGINE: 1 iff the currently
-	          open dialog is one of the autopilot menus (airplane / VTOL /
-	          helicopter), which are known to accept the direct hotkeys
-	          Digit1..Digit5,Digit0,Escape (see FsGuiAutoPilotDialog /
-	          FsGuiAutoPilotVTOLDialog / FsGuiAutoPilotHelicopterDialog's
-	          ProcessRawKeyInput in fsguiinfltdlg.cpp).  Other in-flight
-	          dialogs use per-instance hotkeys or mouse-only interaction, so
-	          the web layer only offers the stick-sector-to-hotkey mapping
-	          when this is set; otherwise it only offers a generic
-	          Escape-to-close action.
+	          open dialog is one of the small set of in-flight dialogs known
+	          to accept the direct positional hotkeys Digit1..Digit9,Digit0,
+	          Escape (see FsSimulation::SimComputeVrGuiState in
+	          fssimulation.cpp for the exact member list -- the autopilot
+	          family plus the radio-comm/ATC/approach menus that override
+	          FsGuiInFlightDialog::ProcessRawKeyInput with a plain switch on
+	          FSKEY_1.. -- see fsguiinfltdlg.cpp).  The field kept its
+	          original "apMenu" name for ABI stability with existing web-layer
+	          code; the autopilot menus were simply the first three dialogs
+	          of this kind wired up.  Other in-flight dialogs (replay/continue
+	          dialogs, the stationary/change-vehicle/chat dialogs, ...) are
+	          mouse-only or have no ProcessRawKeyInput override, so the web
+	          layer only offers the stick-sector-to-hotkey mapping when this
+	          is set; otherwise it only offers a generic Escape-to-close
+	          action (which itself may or may not be wired -- see
+	          FsVrGuiMenuPointer's doc comment).
 	      [7] reserved (0) */
 	float *FsVrGuiDataPointer(void);
+
+	/*! In-flight GUI-dialog MENU block: the ordered list of option labels the
+	    CURRENTLY-OPEN modal in-flight dialog offers, so the web layer's
+	    selection-guide (fswebxr.cpp's drawGuiDialGuide) can show the real
+	    option text instead of hand-transcribed captions that silently go
+	    stale whenever the engine-side dialog changes.  Written every VR
+	    frame by FsSimulation::SimComputeVrGuiState -- independent of whether
+	    the GUI quad composite is enabled (guiData[0] above), so the guide
+	    stays truthful even when the quad itself is never rendered (the
+	    default from ysfwVrOptions.guiPanel=false).
+
+	    Each line is one dialog item's on-screen label text, UTF-8, in the
+	    SAME order FsGuiDialog laid them out (FsGuiDialog::GetNumItem/
+	    GetItem), one per '\n'.  Only FSGUI_BUTTON items that are currently
+	    visible AND enabled are included (so a disabled Next/Prev page
+	    button, or a hidden page of a paged menu, does not appear).  The
+	    labels already carry their own human-facing hotkey prefix by strong
+	    convention across every FsGuiInFlightDialog subclass (e.g. "1...Circle",
+	    "0...Disengage Autopilot", "ESC:Cancel" -- see fsguiinfltdlg.cpp's
+	    Make() functions) -- this is deliberate: several dialogs register
+	    their buttons with fsKey==FSKEY_NULL and dispatch the real hotkey
+	    positionally inside a hand-written ProcessRawKeyInput switch instead
+	    (e.g. FsGuiRadioCommToFormationDialog, FsGuiRadioCommTargetDialog),
+	    so the FsGuiDialogItem::fsKey field is NOT reliable across dialogs.
+	    The label prefix is: it is the same text a keyboard-driven player
+	    already reads off the flat 2D dialog to know what to press.  The web
+	    layer parses that leading token back out for layout, rather than
+	    trusting fsKey.
+
+	    Empty (FsVrGuiMenuLength()==0) when no modal in-flight dialog is
+	    open, or when the currently-open one is not itemList-based in a
+	    useful way.
+
+	      FsVrGuiMenuPointer()  -- pointer to a fixed-capacity static UTF-8
+	          buffer (NOT null-terminated beyond FsVrGuiMenuLength() bytes;
+	          content past capacity is silently truncated, never overflows
+	          -- see FSVR_GUIMENU_CAP in fsvr.cpp).
+	      FsVrGuiMenuLength()   -- number of valid bytes at
+	          FsVrGuiMenuPointer().
+	      FsVrGuiMenuVersion()  -- increments every time the content actually
+	          changes (dialog opened/closed/paged/relabelled), so the web
+	          layer only re-parses/re-draws the guide when this changes, not
+	          every frame (mirrors FsVrAircraftStateDataPointer's
+	          change-driven redraw idiom in fswebxr.cpp). */
+	const char *FsVrGuiMenuPointer(void);
+	int FsVrGuiMenuLength(void);
+	int FsVrGuiMenuVersion(void);
 
 	/*! Aircraft-state block (8 floats) for the VR radial function-dial's live
 	    readouts (RIGHT_DIAL/LEFT_DIAL in fswebxr.cpp): the dial shows the
@@ -168,6 +222,15 @@ extern "C"
 const int FsVrNumEye=2;
 
 void FsVrMarkSimDrawn(void);
+
+/*! Writer side of the FsVrGuiMenuPointer/Length/Version block above.  Called
+    by FsSimulation::SimSerializeVrGuiMenu once per VR frame with the
+    currently-open dialog's serialized option labels (utf8, NOT necessarily
+    null-terminated, len bytes).  Truncates to the buffer's fixed capacity and
+    only bumps FsVrGuiMenuVersion() when the content actually changed (a
+    plain memcmp -- the buffer is tiny and this runs once per frame, so no
+    need for anything smarter). Pass len==0 (utf8 may be NULL) to clear it. */
+void FsVrSetGuiMenu(const char *utf8,int len);
 
 /*! Frustum of the eye at the near/far planes chosen by the caller.
     Compatible with glFrustum/YsGLMakeFrustum parameters. */
