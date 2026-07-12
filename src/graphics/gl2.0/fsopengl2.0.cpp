@@ -921,6 +921,72 @@ void FsVrDrawHudQuad(const float corner[12])
 	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
 }
 
+// ---- VR single-pass-stereo collimated gunsight reticle -------------------
+// Draws the gun crosshair as real world-space 3D line geometry in the scene
+// FBO, rendered through each eye's OWN stereo projection (the cached scene
+// matrices), instead of baking it into the shared flat HUD texture.  Because
+// it is genuine 3D geometry far along the boresight (SimDrawAllScreen places
+// it 2000 m ahead), stereo parallax makes it read as collimated at optical
+// infinity: head translation off the boresight axis no longer shifts the
+// apparent aim point the way the fixed-distance HUD glass does.  lineVtx holds
+// 8 world-space vertices (4 line segments, GL_LINES).  Mirrors FsVrDrawHudQuad's
+// matrix + state pattern, but on the shared VariColor3D renderer (the same
+// flat 3D line renderer FsDrawLine3d uses) instead of the textured HUD-quad one.
+void FsVrDrawReticle(const float lineVtx[24],const YsColor &col)
+{
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	// Restore the scene (eye-0) viewport (the HUD off-screen pass left the
+	// HUD-texture-sized viewport; FsVrDrawHudQuad already restored it, but do
+	// not rely on draw order).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	// A collimated pipper must be full-bright regardless of range: turn fog
+	// off (it would wash a 2000 m reticle toward the fog colour).  Fog is
+	// re-established by the next frame's scene pass (FsFogOn during
+	// SimDrawScreen), and nothing fog-sensitive draws after this within the
+	// frame (the GUI quad composite uses the un-fogged HUD-quad renderer).
+	FsFogOff();
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // Collimated pipper overlays terrain, never occluded.
+	glDisable(GL_CULL_FACE);
+
+	GLfloat colBuf[8*4];
+	for(int i=0; i<8; ++i)
+	{
+		colBuf[i*4  ]=col.Rf();
+		colBuf[i*4+1]=col.Gf();
+		colBuf[i*4+2]=col.Bf();
+		colBuf[i*4+3]=1.0f;
+	}
+
+	auto *renderer=YsGLSLSharedVariColor3DRenderer();
+	YsGLSLUse3DRenderer(renderer);
+	YsGLSLDrawPrimitiveVtxColfv(renderer,GL_LINES,8,lineVtx,colBuf);
+	YsGLSLEndUse3DRenderer(renderer);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
 // ---- VR single-pass-stereo in-flight-GUI-dialog composite ----------------
 // Same shape as the HUD trio above, driven by FsVrGuiDataPointer instead of
 // FsVrHudDataPointer.  FsVrSetHudRenderTarget/FsSetWindowSizeOverride are

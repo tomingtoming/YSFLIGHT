@@ -80,6 +80,14 @@ void FsVrBeginHudRender(void);
 void FsVrEndHudRender(void);
 void FsVrDrawHudQuad(const float corner[12]);
 
+// VR single-pass-stereo collimated gunsight reticle (see fsopengl2.0.cpp).
+// Draws a world-space cross (lineVtx = 8 x vec3, 4 GL_LINES segments) far along
+// the boresight through each eye's own cached stereo projection, so it reads as
+// collimated at optical infinity instead of a fixed-distance flat quad.  Drawn
+// with the shared VariColor3D line renderer, blending on, depth test off, fog
+// off; replaces the gun crosshair that used to be baked into the flat HUD glass.
+void FsVrDrawReticle(const float lineVtx[24],const YsColor &col);
+
 // VR single-pass-stereo in-flight-GUI-dialog composite (see fsopengl2.0.cpp).
 // Same bracket/composite shape as the HUD trio above, driven by
 // FsVrGuiDataPointer (fsvr.h) instead of FsVrHudDataPointer: renders whatever
