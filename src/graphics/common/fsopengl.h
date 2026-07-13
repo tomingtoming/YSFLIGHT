@@ -69,6 +69,24 @@ void FsEnableShadowMap(
     int samplerIdent,int shadowMapIdent);
 void FsDisableShadowMap(int samplerIdent,int shadowMapIdent);
 
+// VR single-pass-stereo shadow-map render support (see fsopengl2.0.cpp and
+// fsvr.h's FsVrShadowFboDataPointer doc comment for WHY: multiview-compiled
+// programs cannot draw into the per-cascade single-layer depth FBOs, so each
+// cascade renders into a shared two-layer depth-array FBO and its layer 0 is
+// then depth-blitted into the cascade's ordinary 2D depth texture).
+//   FsVrShadowMapMultiviewReady   -- 1 iff the web layer published a usable
+//       multiview shadow target sized texWid x texHei (both must match the
+//       cascade size: an equal-rectangle blit is a GLES3 depth-blit
+//       requirement).
+//   FsVrBindShadowMapMultiviewFbo -- bind it as the draw framebuffer (call
+//       in place of the cascade texture's own BindFrameBuffer).
+//   FsVrBlitShadowMapFromMultiview-- with the cascade's own single-layer FBO
+//       currently bound (BindFrameBuffer), blit the array's layer-0 depth
+//       into it.
+int FsVrShadowMapMultiviewReady(int texWid,int texHei);
+void FsVrBindShadowMapMultiviewFbo(void);
+void FsVrBlitShadowMapFromMultiview(int texWid,int texHei);
+
 void FsSetSceneProjection(const class FsProjection &prj);
 void FsSet2DDrawing(void);
 

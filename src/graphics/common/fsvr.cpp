@@ -105,6 +105,14 @@ extern "C" float *FsVrHudDataPointer(void)
 	return fsVrHudData;
 }
 
+// See fsvr.h's FsVrShadowFboDataPointer doc comment for the slot layout.
+static float fsVrShadowFboData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrShadowFboDataPointer(void)
+{
+	return fsVrShadowFboData;
+}
+
 static int fsVrHudRenderActive=0;
 static int fsVrHudRenderW=0;
 static int fsVrHudRenderH=0;
