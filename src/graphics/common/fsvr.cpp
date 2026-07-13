@@ -2,6 +2,12 @@
 
 #include <string.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
+#include <ctime>
+#endif
+
 // Deliberately dependency-free: this is plain shared state between a VR
 // runtime (the writer) and the graphics back-end / simulation core (the
 // readers).  See fsvr.h for the layout.
@@ -117,6 +123,40 @@ static float fsVrAircraftState[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 extern "C" float *FsVrAircraftStateDataPointer(void)
 {
 	return fsVrAircraftState;
+}
+
+// See fsvr.h's FsVrPerfDataPointer doc comment for the slot layout.
+static float fsVrPerfData[16]=
+{
+	0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,
+	0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f
+};
+
+extern "C" float *FsVrPerfDataPointer(void)
+{
+	return fsVrPerfData;
+}
+
+double FsVrPerfNow(void)
+{
+#ifdef __EMSCRIPTEN__
+	return emscripten_get_now();
+#else
+	// Coarse (millisecond-resolution) fallback -- non-Emscripten builds
+	// never read fsVrPerfData for anything real, this just keeps the
+	// instrumentation in fssimulation.cpp / fslazywindow_emscripten.cpp
+	// compiling on every platform.
+	return 1000.0*(double)clock()/(double)CLOCKS_PER_SEC;
+#endif
+}
+
+void FsVrPerfAccumulate(int slot,double ms)
+{
+	if(slot<0 || 16<=slot)
+	{
+		return;
+	}
+	fsVrPerfData[slot]=(0.0f==fsVrPerfData[slot] ? (float)ms : fsVrPerfData[slot]*0.95f+(float)ms*0.05f);
 }
 
 static float fsVrGuiData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
