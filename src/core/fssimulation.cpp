@@ -6508,7 +6508,42 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				const float *hudData=FsVrHudDataPointer();
 				const double aspect=(0.0<hudData[3] && 0.0<hudData[4] ? (double)hudData[4]/(double)hudData[3] : 1.0);
 				const double halfH=halfW*aspect;
-				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist;
+				// Vertical re-centre (gunsight-vs-HUD-content alignment fix):
+				// SimDrawVrHud lays the HUD out via
+				// hud->SetAreaByCenter(texW/2,texH*HUD_CENTER_Y_FRAC,...) --
+				// i.e. the HUD's OWN established centre (where the flat-mode
+				// gun crosshair used to sit, and where essentially every other
+				// symbology element -- weapon list, G/Mach, fuel, gear/flap/
+				// brake, climb ratio, bank, DrawHeading's tape, ... -- is laid
+				// out relative to, see fshud.cpp) is at window-Y =
+				// texH*HUD_CENTER_Y_FRAC, i.e. BELOW the texture's true
+				// geometric middle (texH/2) since HUD_CENTER_Y_FRAC (2/3) >
+				// 1/2. The quad built below is centred on that true middle,
+				// which is also exactly where the collimated reticle sits
+				// (FsVrDrawReticle, drawn on the fixed boresight ray below) --
+				// so before this offset, the HUD's own content read as
+				// sitting BELOW the gunsight (the reported bug: "everything
+				// except the gunsight sits too low").
+				//   A point drawn at window-Y=Yc is always
+				//   halfH*(1-2*Yc/texH) above whatever the quad's CURRENT
+				//   centre is (window-Y=0 -> +halfH, the "up" edge;
+				//   window-Y=texH -> -halfH, the "down" edge -- see
+				//   YsGLSLRenderHudQuad's BL/BR/TR/TL<->(0,0)/(1,0)/(1,1)/
+				//   (0,1) UV mapping, ysglslhudquadrenderer.c). For
+				//   Yc=texH*HUD_CENTER_Y_FRAC that is
+				//   halfH*(1-2*HUD_CENTER_Y_FRAC) = -halfH/3, i.e. one third
+				//   of a half-height BELOW the quad's own centre.
+				//   Shifting the quad's centre UP by halfH/3 moves that exact
+				//   point back onto the (fixed, unmoved) boresight ray:
+				//   NEW_CENTER = OLD_CENTER + up*halfH*(2*HUD_CENTER_Y_FRAC-1)
+				//              = OLD_CENTER + up*halfH/3.
+				// (Also mirrored in SimDrawVrHud's MISSILE!/STALL warning
+				// placement below -- both must use the SAME
+				// HUD_CENTER_Y_FRAC so the warnings never overlap the
+				// reticle.)
+				const double HUD_CENTER_Y_FRAC=2.0/3.0;
+				const double centerOffsetUp=halfH*(2.0*HUD_CENTER_Y_FRAC-1.0); // = halfH/3.
+				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist+up*centerOffsetUp;
 				const YsVec3 bl=center-right*halfW-up*halfH;
 				const YsVec3 br=center+right*halfW-up*halfH;
 				const YsVec3 tr=center+right*halfW+up*halfH;
