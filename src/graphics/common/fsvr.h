@@ -217,7 +217,52 @@ extern "C"
 	                     HUD's own ammo readout (DrawAmmo) uses for the gun)
 	      [6..7] reserved (0) */
 	float *FsVrAircraftStateDataPointer(void);
+
+	/*! Phase-breakdown perf block (16 floats): an engine-side wall-clock EMA
+	    of the VR multiview draw path (FsSimulation::SimDrawAllScreen's
+	    single-pass-stereo branch), exposed so the web layer can print a
+	    console phase breakdown of the tick on hardware with no devtools
+	    profiler (Quest 3S standalone browser). Same exponential-moving-
+	    average shape as fslazywindow_emscripten.cpp's YsfwGetTickMs
+	    (alpha=0.05): each new sample o is folded in as
+	    avg=(0==avg ? o : avg*0.95+o*0.05) -- see FsVrPerfAccumulate.
+	      [0] interval/simulation ms -- SET BY THE PORT LAYER
+	          (fslazywindow_emscripten.cpp's MainLoopTick), NOT this engine:
+	          the appPtr->Interval() half of the tick. 0 until the port
+	          layer's split lands a sample.
+	      [1] draw ms -- SET BY THE PORT LAYER, the appPtr->Draw() half.
+	      [2] scene draw ms -- the single SimDrawScreen call in the multiview
+	          branch (the 3D world, one traversal serving both eyes).
+	      [3] HUD ms -- SimDrawVrHud (inside its FsVrBeginHudRender/
+	          FsVrEndHudRender off-screen-FBO redirect) plus FsVrDrawHudQuad.
+	          0 while the HUD composite is disabled (hudData[0]==0).
+	      [4] GUI ms -- SimComputeVrGuiState (always, includes
+	          SimSerializeVrGuiMenu) plus, while a dialog is open/enabled,
+	          SimDrawVrGui and FsVrDrawGuiQuad.
+	      [5] reticle ms -- FsVrDrawReticle. 0 while the reticle is disabled
+	          or there is no live HUD-equipped player plane.
+	      [6..15] reserved, always 0.
+	    Instruments ONLY the VR multiview branch; the flat-screen and per-eye
+	    (non-multiview stereo) draw paths are untouched. Always-on: a handful
+	    of FsVrPerfNow() calls per frame is negligible next to the ~20+ms
+	    scene draw they are measuring, so there is no build flag to disable
+	    it. */
+	float *FsVrPerfDataPointer(void);
 }
+
+/*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:
+    sub-millisecond resolution under Emscripten (emscripten_get_now(), the
+    same clock fslazywindow_emscripten.cpp's tick EMA already uses) and a
+    coarse clock()-based fallback on every other platform (fsvr.{h,cpp} are
+    deliberately dependency-free -- see the top of fsvr.cpp -- so this does
+    not pull in fssimplewindow.h's FsSubSecondTimer just for a path that
+    never reads this block for anything real). */
+double FsVrPerfNow(void);
+
+/*! Folds a new `ms` sample into perf slot `slot` (0..15, see
+    FsVrPerfDataPointer's doc comment) with the same alpha=0.05 EMA as
+    YsfwGetTickMs. Out-of-range slot is a silent no-op. */
+void FsVrPerfAccumulate(int slot,double ms);
 
 const int FsVrNumEye=2;
 

@@ -6449,7 +6449,11 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			eyeViewMode.viewAttitude.SetTwoVector(fwd,up);
 		}
 
-		SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,eyeViewMode);
+		{
+			const double sceneT0=FsVrPerfNow();
+			SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,eyeViewMode);
+			FsVrPerfAccumulate(2,FsVrPerfNow()-sceneT0);
+		}
 
 		// VR HUD: render the primary 2D flying HUD once into the off-screen
 		// two-layer multiview HUD framebuffer (both layers identical, drawn by
@@ -6460,6 +6464,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		const float *hudData=FsVrHudDataPointer();
 		if(0.0f!=hudData[0])
 		{
+			const double hudT0=FsVrPerfNow();
 			FsVrBeginHudRender();
 			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode);
 			FsVrEndHudRender();
@@ -6516,7 +6521,9 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 					(float)tl.x(),(float)tl.y(),(float)tl.z()
 				};
 				FsVrDrawHudQuad(corner);
+				FsVrPerfAccumulate(3,FsVrPerfNow()-hudT0);
 
+				const double reticleT0=FsVrPerfNow();
 				// Collimated gunsight reticle: the gun crosshair is no longer
 				// baked into the flat HUD glass for VR (SimDrawVrHud passes
 				// drawCrossHair=NO).  Draw it here instead as real world-space
@@ -6566,6 +6573,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 					// (FsHeadUpDisplay ctor: hudCol=RGB(100,255,100)).
 					FsVrDrawReticle(reticleVtx,hud->hudCol);
 				}
+				FsVrPerfAccumulate(5,FsVrPerfNow()-reticleT0);
 			}
 		}
 
@@ -6584,6 +6592,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// frame the GUI composite is enabled (cheap: FsGuiDialog::Show is a
 		// no-op when there is nothing to show), so a dialog opening
 		// mid-flight is picked up the very next frame with no extra wiring.
+		const double guiT0=FsVrPerfNow();
 		SimComputeVrGuiState();
 
 		const float *guiData=FsVrGuiDataPointer();
@@ -6641,6 +6650,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				}
 			}
 		}
+		FsVrPerfAccumulate(4,FsVrPerfNow()-guiT0);
 	}
 	else if(0!=FsVrIsActive())
 	{
