@@ -6455,6 +6455,51 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			FsVrPerfAccumulate(2,FsVrPerfNow()-sceneT0);
 		}
 
+		// Target designator marks (circle around other aircraft -- white if
+		// same IFF, hud->hudCol otherwise, plus a tighter flashing/yellow ring
+		// while an AAM target is in range; a "+"-style cross around designated
+		// ground/GOB targets within 5 km): flat play draws these via
+		// SimDrawContainer, called from SimDrawAircraftInterior/
+		// SimDrawGroundInterior -- both entirely skipped in VR (see the
+		// `if(0==FsVrIsActive()) SimDrawForeground(...)` gate inside
+		// SimDrawScreen, which is what makes them invisible in VR today).
+		// FsHeadUpDisplay::DrawCircleContainer/DrawCrossDesignator
+		// (fshudgl2.0.cpp) already draw genuine world-space 3D billboards
+		// through YsGLSLSharedFlat3DRenderer -- which IS
+		// YsGLSLSharedVariColor3DRenderer under the hood (see
+		// ysglslsharedrenderer.c: "return ysGLSLVariColor3DRenderer;" for
+		// BOTH), the exact renderer FsSetSceneProjection just stereo-projected
+		// for the whole scene above (YsGLSLSetShared3DRendererProjectionStereo
+		// iterates every shared 3D renderer) -- so calling SimDrawContainer
+		// here, from the eye-0 pose, gets correct per-eye parallax for free:
+		// no new GL plumbing needed, unlike the reticle/HUD quad. This is
+		// SimDrawAircraftInterior/SimDrawGroundInterior's OWN exact call
+		// sequence (FsFlushScene/FsSetCameraPosition bracketing so
+		// DrawCircleContainer's internal "previous modelview" read is the
+		// camera's world-to-eye matrix, not whatever the last scene object
+		// left bound) and its OWN exact gating
+		// (cfgPtr->neverDrawAirplaneContainer / NeedToDrawGameInfo /
+		// drawPlayerNameAlways) and target-selection logic (which targets get
+		// marked at all) -- reusing SimDrawContainer wholesale rather than
+		// reimplementing any of it, so VR and flat can never drift on WHICH
+		// targets get a mark or what they look like. (SimDrawGunAim/
+		// SimDrawBombingAim -- the lead-gunsight and bombing-aim crosshairs --
+		// are deliberately NOT called here: a different feature from target
+		// designation, and would double up with the collimated world-space
+		// reticle below.)
+		if(YSTRUE!=cfgPtr->neverDrawAirplaneContainer)
+		{
+			const double designatorT0=FsVrPerfNow();
+			FsFlushScene();
+			FsSetCameraPosition(eyeViewMode.viewPoint,eyeViewMode.viewAttitude,YSTRUE);
+			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode) || YSTRUE==cfgPtr->drawPlayerNameAlways)
+			{
+				SimDrawContainer(eyeViewMode);
+			}
+			FsFlushScene();
+			FsVrPerfAccumulate(6,FsVrPerfNow()-designatorT0);
+		}
+
 		// VR HUD: render the primary 2D flying HUD once into the off-screen
 		// two-layer multiview HUD framebuffer (both layers identical, drawn by
 		// the same stereo-compiled shared renderers), then composite it onto a
