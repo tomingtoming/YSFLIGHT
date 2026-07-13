@@ -6546,7 +6546,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		{
 			const double hudT0=FsVrPerfNow();
 			FsVrBeginHudRender();
-			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode);
+			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode,demoMode);
 			FsVrEndHudRender();
 
 			// Cockpit-anchored quad, world space, from the pre-eye camera basis.
@@ -7205,17 +7205,18 @@ void FsSimulation::SimDrawScreen(
 #endif
 }
 
-void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const
+void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode,YSBOOL demoMode) const
 {
 	// Off-screen 2D HUD pass for single-pass-stereo VR.  The caller
 	// (SimDrawAllScreen) has bound the two-layer multiview HUD framebuffer via
 	// FsVrBeginHudRender, which also made FsGetWindowSize / the 2D viewport
 	// report the HUD texture size, so all the pixel-space placement below lands
 	// on the HUD texture.  Only the primary flying HUD is rendered here (the
-	// combiner-glass symbology): the flat screen-space status text / warnings /
-	// damage bar that SimDrawForeground also draws are deliberately left out --
-	// they have no place on a cockpit-anchored glass, and the 3D cockpit
-	// interior stays in the world scene pass.
+	// combiner-glass symbology) plus the MISSILE!/STALL warnings below: the
+	// rest of the flat screen-space status text / damage bar that
+	// SimDrawForeground also draws is deliberately left out -- it has no
+	// place on a cockpit-anchored glass, and the 3D cockpit interior stays in
+	// the world scene pass.
 	const FsAirplane *playerPlane=GetPlayerAirplane();
 
 	// hud (FsHeadUpDisplay, the legacy pixel-space HUD renderer used only by
@@ -7269,6 +7270,42 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 		SimDraw2dAdf(cockpitIndicationSet);
 
 		SimDrawRadar(actualViewMode);
+	}
+
+	// MISSILE!/STALL warnings: SimDrawForeground draws these (screen-centre,
+	// see its own block around "!!MISSILE!!"/"!!YOU ARE LOCKED ON!!"/"STALL")
+	// but SimDrawForeground itself is entirely skipped in VR (SimDrawScreen's
+	// `if(0==FsVrIsActive())` gate) -- kept textually duplicated here rather
+	// than factored into a shared helper (three near-trivial FsDrawString
+	// calls, not worth a new abstraction) but the condition chain, strings
+	// and colours below must stay IDENTICAL to SimDrawForeground's copy so
+	// VR and flat can never drift on when a pilot sees these. Positioned
+	// a quarter of the HUD texture height ABOVE the HUD's own visual centre
+	// (HUD_CENTER_Y_FRAC=2/3, see SimDrawAllScreen's HUD-quad vertical
+	// re-centre comment) so the text never overlaps the collimated reticle,
+	// which now sits at that same visual centre.
+	if(NULL!=playerPlane && YSTRUE==playerPlane->Prop().IsActive() && YSTRUE!=demoMode)
+	{
+		int warnWid,warnHei;
+		FsGetWindowSize(warnWid,warnHei);
+		int sx=warnWid/2;
+		const double HUD_CENTER_Y_FRAC=2.0/3.0; // Mirrors SimDrawAllScreen's HUD_CENTER_Y_FRAC exactly.
+		int sy=(int)(warnHei*HUD_CENTER_Y_FRAC)-warnHei/4;
+		if(bulletHolder.IsLockedOn(playerPlane)==YSTRUE)
+		{
+			sx-=40;
+			FsDrawString(sx,sy,"!!MISSILE!!",YsRed());
+		}
+		else if(IsLockedOn(playerPlane)==YSTRUE)
+		{
+			sx-=80;
+			FsDrawString(sx,sy,"!!YOU ARE LOCKED ON!!",YsRed());
+		}
+		else if(playerPlane->Prop().GetFlightState()==FSSTALL)
+		{
+			sx-=30;
+			FsDrawString(sx,sy,"STALL",YsYellow());
+		}
 	}
 }
 

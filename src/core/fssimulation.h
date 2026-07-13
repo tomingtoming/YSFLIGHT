@@ -903,7 +903,11 @@ protected:
 	    speed/altitude, VOR/ADF, radar) with the 2D coordinate system sized to
 	    the HUD texture.  Caller has already bound the off-screen HUD framebuffer
 	    (FsVrBeginHudRender). */
-	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const;
+	/*! demoMode gates the MISSILE!/STALL warning block (mirroring
+	    SimDrawForeground's own demoMode!=YSTRUE check) -- see this
+	    function's body for the exact condition chain, kept textually
+	    identical to SimDrawForeground's copy on purpose. */
+	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode,YSBOOL demoMode) const;
 	/*! VR single-pass-stereo in-flight GUI dialog: draws whatever modal
 	    in-flight dialog (autopilot menu, radio-comm menus, replay/continue
 	    dialogs, ...) is currently open, with the 2D coordinate system sized
