@@ -83,6 +83,21 @@ extern "C" float *FsVrControlDataPointer(void)
 	return fsVrCtlData;
 }
 
+// See fsvr.h's FsVrHandPoseDataPointer doc comment for the slot layout.
+// Identity quaternion (w=1) in both hands' slots by default so a reader
+// that runs before the first write never sees a degenerate all-zero
+// quaternion.
+static float fsVrHandPose[16]=
+{
+	0.0f,0.0f,0.0f, 0.0f,0.0f,0.0f,1.0f, 0.0f,
+	0.0f,0.0f,0.0f, 0.0f,0.0f,0.0f,1.0f, 0.0f
+};
+
+extern "C" float *FsVrHandPoseDataPointer(void)
+{
+	return fsVrHandPose;
+}
+
 static float fsVrHudData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 
 extern "C" float *FsVrHudDataPointer(void)
@@ -206,6 +221,22 @@ void FsVrSetGuiMenu(const char *utf8,int len)
 		fsVrGuiMenuLen=len;
 		++fsVrGuiMenuVersion;
 	}
+}
+
+static float fsVrBlackoutOverride[5]={0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrBlackoutOverridePointer(void)
+{
+	return fsVrBlackoutOverride;
+}
+
+extern "C" void FsVrSetBlackoutOverride(int active,float r,float g,float b,float alpha)
+{
+	fsVrBlackoutOverride[0]=(0!=active ? 1.0f : 0.0f);
+	fsVrBlackoutOverride[1]=r;
+	fsVrBlackoutOverride[2]=g;
+	fsVrBlackoutOverride[3]=b;
+	fsVrBlackoutOverride[4]=alpha;
 }
 
 void FsVrMarkSimDrawn(void)

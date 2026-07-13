@@ -5,19 +5,14 @@
 
 
 
-void FsMakeBlackOutPolygon(YsGLVertexBuffer2D &vtxBuf,YsGLColorBuffer &colBuf,const double G)
+YSBOOL FsComputeBlackoutTint(const double G,double &r,double &g,double &b,double &alpha)
 {
-	vtxBuf.CleanUp();
-	colBuf.CleanUp();
-
 	const double plusGLimit=9.0f;
 	const double minusGLimit=-5.0f;
 
 	if(G>plusGLimit || G<minusGLimit)
 	{
-		int cenX,cenY,rad;
-		double blackness,r,g,b;
-
+		double blackness;
 		if(G>0.0)
 		{
 			blackness=(G-plusGLimit)/6.0f;
@@ -32,7 +27,25 @@ void FsMakeBlackOutPolygon(YsGLVertexBuffer2D &vtxBuf,YsGLColorBuffer &colBuf,co
 			g=0.0f;
 			b=0.0f;
 		}
+		alpha=YsBound(blackness,0.0,1.0);
+		return YSTRUE;
+	}
+	r=0.0;
+	g=0.0;
+	b=0.0;
+	alpha=0.0;
+	return YSFALSE;
+}
 
+void FsMakeBlackOutPolygon(YsGLVertexBuffer2D &vtxBuf,YsGLColorBuffer &colBuf,const double G)
+{
+	vtxBuf.CleanUp();
+	colBuf.CleanUp();
+
+	double r,g,b,blackness;
+	if(YSTRUE==FsComputeBlackoutTint(G,r,g,b,blackness))
+	{
+		int cenX,cenY,rad;
 
 		int wid,hei;
 		FsGetWindowSize(wid,hei);

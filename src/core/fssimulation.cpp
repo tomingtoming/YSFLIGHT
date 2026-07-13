@@ -19,6 +19,7 @@
 #include "fsinstpanel.h"
 #include "platform/common/fswindow.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsblackout.h"
 #include "graphics/common/fsvr.h"
 
 #include "fspluginmgr.h"
@@ -2854,9 +2855,11 @@ void FsSimulation::DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE si
 	switch(simState)
 	{
 	case FSSIMSTATE_CENTERJOYSTICK:
+		SimClearVrGuiStateIfActive();
 		CenterJoystickDraw();
 		break;
 	case FSSIMSTATE_INITIALIZE:
+		SimClearVrGuiStateIfActive();
 		FsClearScreenAndZBuffer(YsBlue());
 		break;
 	case FSSIMSTATE_RUNNING:
@@ -2866,11 +2869,43 @@ void FsSimulation::DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE si
 		CheckContinueDraw();
 		break;
 	case FSSIMSTATE_TERMINATING:
+		SimClearVrGuiStateIfActive();
 		FsClearScreenAndZBuffer(YsBlue());
 		break;
 	case FSSIMSTATE_OVER:
+		SimClearVrGuiStateIfActive();
 		FsClearScreenAndZBuffer(YsBlue());
 		break;
+	}
+}
+
+// Fix for the VR "ghost ESC dial" bug: FsVrGuiDataPointer()'s dialogVisible/
+// apMenu/guiMenu block (SimComputeVrGuiState) is normally kept fresh every
+// frame from INSIDE SimDrawAllScreen's multiview branch -- but
+// SimDrawAllScreen only ever runs while simState==FSSIMSTATE_RUNNING (see
+// the switch above), so the instant the sim leaves RUNNING for ANY other
+// reason (a continue-dialog prompt, centering the joystick, terminating,
+// between flights) that block goes STALE, frozen at whatever it last was.
+// If it happened to read dialogVisible==1 the moment the state left RUNNING,
+// nothing else in the engine (the OLD code) ever wrote it back to 0 for the
+// states that don't draw a real dialog at all (CENTERJOYSTICK/INITIALIZE/
+// TERMINATING/OVER) -- that stale 1 would then persist across a session
+// boundary into a brand new flight's VR session (guiData is a static/global
+// block, not per-FsSimulation-instance), reading exactly like the reported
+// bug: a ghost ESC dial "at VR entry" with no real dialog anywhere.
+// Explicitly clearing it here, in every DrawInNormalSimulationMode branch
+// that does NOT itself keep the block fresh (CHECKCONTINUE's
+// CheckContinueDraw now does, see below), closes that gap: whenever nothing
+// is actually being shown, the block says so truthfully instead of holding
+// on to a stale answer.
+void FsSimulation::SimClearVrGuiStateIfActive(void) const
+{
+	if(0!=FsVrIsActive())
+	{
+		float *guiData=FsVrGuiDataPointer();
+		guiData[5]=0.0f;
+		guiData[6]=0.0f;
+		FsVrSetGuiMenu(NULL,0);
 	}
 }
 
@@ -6365,6 +6400,18 @@ void FsSimulation::SimMakeUpCockpitIndicationSet(class FsCockpitIndicationSet &c
 	}
 }
 
+// Rotates vector v by unit quaternion (qx,qy,qz,qw): v'=v+2*qw*(qv x v)+
+// 2*qv x (qv x v), the standard quaternion-vector-rotation identity (no
+// separate YsQuat class exists in ysclass -- YsAtt3 is Euler-angle based --
+// so this is the small bit of quaternion math the VR hand-pose block (see
+// fsvr.h's FsVrHandPoseDataPointer) needs on the read side).
+static YsVec3 FsVrRotateVecByQuat(const YsVec3 &v,double qx,double qy,double qz,double qw)
+{
+	const YsVec3 qv(qx,qy,qz);
+	const YsVec3 t=(qv^v)*2.0;
+	return v+qw*t+(qv^t);
+}
+
 void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const
 {
 	FsVrMarkSimDrawn();
@@ -6455,6 +6502,51 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			FsVrPerfAccumulate(2,FsVrPerfNow()-sceneT0);
 		}
 
+		// Target designator marks (circle around other aircraft -- white if
+		// same IFF, hud->hudCol otherwise, plus a tighter flashing/yellow ring
+		// while an AAM target is in range; a "+"-style cross around designated
+		// ground/GOB targets within 5 km): flat play draws these via
+		// SimDrawContainer, called from SimDrawAircraftInterior/
+		// SimDrawGroundInterior -- both entirely skipped in VR (see the
+		// `if(0==FsVrIsActive()) SimDrawForeground(...)` gate inside
+		// SimDrawScreen, which is what makes them invisible in VR today).
+		// FsHeadUpDisplay::DrawCircleContainer/DrawCrossDesignator
+		// (fshudgl2.0.cpp) already draw genuine world-space 3D billboards
+		// through YsGLSLSharedFlat3DRenderer -- which IS
+		// YsGLSLSharedVariColor3DRenderer under the hood (see
+		// ysglslsharedrenderer.c: "return ysGLSLVariColor3DRenderer;" for
+		// BOTH), the exact renderer FsSetSceneProjection just stereo-projected
+		// for the whole scene above (YsGLSLSetShared3DRendererProjectionStereo
+		// iterates every shared 3D renderer) -- so calling SimDrawContainer
+		// here, from the eye-0 pose, gets correct per-eye parallax for free:
+		// no new GL plumbing needed, unlike the reticle/HUD quad. This is
+		// SimDrawAircraftInterior/SimDrawGroundInterior's OWN exact call
+		// sequence (FsFlushScene/FsSetCameraPosition bracketing so
+		// DrawCircleContainer's internal "previous modelview" read is the
+		// camera's world-to-eye matrix, not whatever the last scene object
+		// left bound) and its OWN exact gating
+		// (cfgPtr->neverDrawAirplaneContainer / NeedToDrawGameInfo /
+		// drawPlayerNameAlways) and target-selection logic (which targets get
+		// marked at all) -- reusing SimDrawContainer wholesale rather than
+		// reimplementing any of it, so VR and flat can never drift on WHICH
+		// targets get a mark or what they look like. (SimDrawGunAim/
+		// SimDrawBombingAim -- the lead-gunsight and bombing-aim crosshairs --
+		// are deliberately NOT called here: a different feature from target
+		// designation, and would double up with the collimated world-space
+		// reticle below.)
+		if(YSTRUE!=cfgPtr->neverDrawAirplaneContainer)
+		{
+			const double designatorT0=FsVrPerfNow();
+			FsFlushScene();
+			FsSetCameraPosition(eyeViewMode.viewPoint,eyeViewMode.viewAttitude,YSTRUE);
+			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode) || YSTRUE==cfgPtr->drawPlayerNameAlways)
+			{
+				SimDrawContainer(eyeViewMode);
+			}
+			FsFlushScene();
+			FsVrPerfAccumulate(6,FsVrPerfNow()-designatorT0);
+		}
+
 		// VR HUD: render the primary 2D flying HUD once into the off-screen
 		// two-layer multiview HUD framebuffer (both layers identical, drawn by
 		// the same stereo-compiled shared renderers), then composite it onto a
@@ -6466,7 +6558,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		{
 			const double hudT0=FsVrPerfNow();
 			FsVrBeginHudRender();
-			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode);
+			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode,demoMode);
 			FsVrEndHudRender();
 
 			// Cockpit-anchored quad, world space, from the pre-eye camera basis.
@@ -6508,7 +6600,42 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				const float *hudData=FsVrHudDataPointer();
 				const double aspect=(0.0<hudData[3] && 0.0<hudData[4] ? (double)hudData[4]/(double)hudData[3] : 1.0);
 				const double halfH=halfW*aspect;
-				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist;
+				// Vertical re-centre (gunsight-vs-HUD-content alignment fix):
+				// SimDrawVrHud lays the HUD out via
+				// hud->SetAreaByCenter(texW/2,texH*HUD_CENTER_Y_FRAC,...) --
+				// i.e. the HUD's OWN established centre (where the flat-mode
+				// gun crosshair used to sit, and where essentially every other
+				// symbology element -- weapon list, G/Mach, fuel, gear/flap/
+				// brake, climb ratio, bank, DrawHeading's tape, ... -- is laid
+				// out relative to, see fshud.cpp) is at window-Y =
+				// texH*HUD_CENTER_Y_FRAC, i.e. BELOW the texture's true
+				// geometric middle (texH/2) since HUD_CENTER_Y_FRAC (2/3) >
+				// 1/2. The quad built below is centred on that true middle,
+				// which is also exactly where the collimated reticle sits
+				// (FsVrDrawReticle, drawn on the fixed boresight ray below) --
+				// so before this offset, the HUD's own content read as
+				// sitting BELOW the gunsight (the reported bug: "everything
+				// except the gunsight sits too low").
+				//   A point drawn at window-Y=Yc is always
+				//   halfH*(1-2*Yc/texH) above whatever the quad's CURRENT
+				//   centre is (window-Y=0 -> +halfH, the "up" edge;
+				//   window-Y=texH -> -halfH, the "down" edge -- see
+				//   YsGLSLRenderHudQuad's BL/BR/TR/TL<->(0,0)/(1,0)/(1,1)/
+				//   (0,1) UV mapping, ysglslhudquadrenderer.c). For
+				//   Yc=texH*HUD_CENTER_Y_FRAC that is
+				//   halfH*(1-2*HUD_CENTER_Y_FRAC) = -halfH/3, i.e. one third
+				//   of a half-height BELOW the quad's own centre.
+				//   Shifting the quad's centre UP by halfH/3 moves that exact
+				//   point back onto the (fixed, unmoved) boresight ray:
+				//   NEW_CENTER = OLD_CENTER + up*halfH*(2*HUD_CENTER_Y_FRAC-1)
+				//              = OLD_CENTER + up*halfH/3.
+				// (Also mirrored in SimDrawVrHud's MISSILE!/STALL warning
+				// placement below -- both must use the SAME
+				// HUD_CENTER_Y_FRAC so the warnings never overlap the
+				// reticle.)
+				const double HUD_CENTER_Y_FRAC=2.0/3.0;
+				const double centerOffsetUp=halfH*(2.0*HUD_CENTER_Y_FRAC-1.0); // = halfH/3.
+				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist+up*centerOffsetUp;
 				const YsVec3 bl=center-right*halfW-up*halfH;
 				const YsVec3 br=center+right*halfW-up*halfH;
 				const YsVec3 tr=center+right*halfW+up*halfH;
@@ -6575,6 +6702,167 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				}
 				FsVrPerfAccumulate(5,FsVrPerfNow()-reticleT0);
 			}
+		}
+
+		// VR hand-held HOTAS props: while a hand is grabbing the virtual
+		// stick (right) or throttle (left), draw the engine's own
+		// calibration-diorama DNM models (misc/stick.dnm, misc/
+		// throttle.dnm) at the grip position via the ready-made
+		// FsFlightControl::DrawJoystick/DrawThrottle -- the SAME calls the
+		// calibration screen uses, so the model articulates from the LIVE
+		// ctlElevator/ctlAileron/ctlThrottle every frame (which
+		// ApplyVrControlOverride feeds from this same VR session), giving a
+		// stick/throttle that visibly moves as the pilot's wrist does.
+		//
+		// Grip pose arrives from the WebXR layer (fswebxr.cpp) in VIEWER
+		// space (fsvr.h's FsVrHandPoseDataPointer) -- relative to wherever
+		// the pilot's head currently is, in the browser's own convention (x
+		// right, y up, -z forward) -- which needs only the WebXR-to-engine
+		// handedness flip (negate z) to become exactly the frame
+		// FsVisualDnm::Draw(pos,att) already expects: "the viewpoint is at
+		// the origin looking straight ahead" (see SimDrawJoystick's memo
+		// above and DrawJoystick's own doc comment in fscontrol.cpp) -- the
+		// SAME per-eye camera-space frame a viewer-space grip pose is
+		// already given in, up to that flip, so no world-space
+		// reconstruction (camToWorld) is needed here at all, unlike the HUD
+		// glass/reticle/tint above (which draw raw world-space vertices).
+		// This does mean the ~3 cm eye-vs-viewer offset is not corrected
+		// for -- an imperceptible approximation for a hand-held prop.
+		//
+		// Grabbed gating reads FsVrControlDataPointer directly (the SAME
+		// block/threshold FsFlightControl::ApplyVrControlOverride already
+		// uses for stick/throttle deflection), so the prop drawn here can
+		// never show contradictory state ("grabbed" prop with a
+		// non-VR-controlled stick, or vice versa).
+		{
+			const float *handPose=FsVrHandPoseDataPointer();
+			const float *handCtlData=FsVrControlDataPointer();
+
+			// misc/stick.dnm / misc/throttle.dnm are authored as a whole
+			// floor-standing console (a ~0.48 x 0.48 m base plate plus a
+			// rod/lever rising ~0.48 m above it -- see fscontrol.cpp's
+			// DrawJoystick doc comment) for the calibration diorama's
+			// third-person view -- far too big to float in a pilot's hand.
+			// This brings the visible rod/lever (0 to ~0.483 m in the
+			// model's own unscaled units) down to ~18 cm.
+			const double HANDPROP_SCALE=0.375;
+
+			if(0.5f<handCtlData[0]) // Right hand: virtual stick grabbed.
+			{
+				const YsVec3 pos(handPose[0],handPose[1],-handPose[2]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,-1.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0, 0.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
+				const YsVec3 up (upV.x(), upV.y(), -upV.z());
+				YsAtt3 att;
+				att.SetTwoVector(fwd,up);
+
+				FsVrBeginHandPropDraw();
+				userInput.DrawJoystick(pos,att,HANDPROP_SCALE);
+				FsVrEndHandPropDraw();
+			}
+
+			if(0.5f<handCtlData[4]) // Left hand: virtual throttle grabbed.
+			{
+				const YsVec3 pos(handPose[8],handPose[9],-handPose[10]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,-1.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0, 0.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
+				const YsVec3 up (upV.x(), upV.y(), -upV.z());
+				YsAtt3 att;
+				att.SetTwoVector(fwd,up);
+
+				FsVrBeginHandPropDraw();
+				userInput.DrawThrottle(pos,att,HANDPROP_SCALE);
+				FsVrEndHandPropDraw();
+			}
+		}
+
+		// G-load blackout(dark)/redout(red) full-field tint: flat play draws
+		// this via SimDrawBlackout, called from SimDrawScreen only
+		// `if(0==FsVrIsActive())` -- entirely skipped in VR, so high-G
+		// manoeuvres had no visual cue at all in a headset. Draw the SAME
+		// effect (same G-thresholds, same colour, same shared intensity
+		// computation -- FsComputeBlackoutTint, factored out of
+		// FsMakeBlackOutPolygon so flat and VR can never drift on WHEN it
+		// kicks in or what colour it is) as a single flat full-view tint
+		// quad instead of the flat path's radial screen-space vignette (VR
+		// has no one "screen centre" to radiate from -- the visual field is
+		// not screen-bounded). Drawn AFTER the HUD glass/reticle above so it
+		// covers EVERYTHING, matching the physiological effect (a G-induced
+		// blackout dims the pilot's whole vision, HUD included).
+		{
+			const double tintT0=FsVrPerfNow();
+			float tintR=0.0f,tintG=0.0f,tintB=0.0f,tintAlpha=0.0f;
+			YSBOOL tintActive=YSFALSE;
+
+			const float *blackoutOverride=FsVrBlackoutOverridePointer();
+			if(0.0f!=blackoutOverride[0])
+			{
+				// TEST-ONLY override (vr.pokeBlackout in fswebxr.cpp): lets a
+				// headless test exercise the tint without a real high-G
+				// manoeuvre. Skips the gating below entirely -- the override
+				// is the test's explicit intent.
+				tintR=blackoutOverride[1];
+				tintG=blackoutOverride[2];
+				tintB=blackoutOverride[3];
+				tintAlpha=blackoutOverride[4];
+				tintActive=(0.0f<tintAlpha ? YSTRUE : YSFALSE);
+			}
+			else
+			{
+				const FsAirplane *tintPlane=GetPlayerAirplane();
+				if(cfgPtr->blackOut==YSTRUE &&
+				   mainWindowActualViewMode.actualViewMode==FSCOCKPITVIEW &&
+				   NULL!=tintPlane &&
+				   tintPlane->isPlayingRecord!=YSTRUE &&
+				   tintPlane->IsAlive()==YSTRUE)
+				{
+					double r,g,b,alpha;
+					if(YSTRUE==FsComputeBlackoutTint(tintPlane->Prop().GetG(),r,g,b,alpha))
+					{
+						tintR=(float)r;
+						tintG=(float)g;
+						tintB=(float)b;
+						tintAlpha=(float)alpha;
+						tintActive=YSTRUE;
+					}
+				}
+			}
+
+			if(YSTRUE==tintActive && 0.0f<tintAlpha)
+			{
+				// Full-view coverage quad: huge and close (1 m) so it fills
+				// the whole eye frustum regardless of headset FOV (halfSize=
+				// 20x the distance is comfortably past any realistic FOV --
+				// tan(87deg)~19). Same fwd/up/right pre-head-tracking cockpit
+				// basis as the HUD glass/reticle above.
+				YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+				if(YSOK==camToWorld.Invert())
+				{
+					YsVec3 fwd,up,right;
+					camToWorld.Mul(fwd,YsZVec(),0.0);
+					camToWorld.Mul(up,YsYVec(),0.0);
+					camToWorld.Mul(right,YsXVec(),0.0);
+
+					const double D=1.0;
+					const double halfSize=D*20.0;
+					const YsVec3 c=mainWindowActualViewMode.viewPoint+fwd*D;
+					const YsVec3 tbl=c-right*halfSize-up*halfSize;
+					const YsVec3 tbr=c+right*halfSize-up*halfSize;
+					const YsVec3 ttr=c+right*halfSize+up*halfSize;
+					const YsVec3 ttl=c-right*halfSize+up*halfSize;
+					const float tintCorner[12]=
+					{
+						(float)tbl.x(),(float)tbl.y(),(float)tbl.z(),
+						(float)tbr.x(),(float)tbr.y(),(float)tbr.z(),
+						(float)ttr.x(),(float)ttr.y(),(float)ttr.z(),
+						(float)ttl.x(),(float)ttl.y(),(float)ttl.z()
+					};
+					FsVrDrawFullScreenTint(tintCorner,tintR,tintG,tintB,tintAlpha);
+				}
+			}
+			FsVrPerfAccumulate(7,FsVrPerfNow()-tintT0);
 		}
 
 		// VR in-flight GUI dialog: same off-screen-pass-then-composite shape as
@@ -7003,17 +7291,18 @@ void FsSimulation::SimDrawScreen(
 #endif
 }
 
-void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const
+void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode,YSBOOL demoMode) const
 {
 	// Off-screen 2D HUD pass for single-pass-stereo VR.  The caller
 	// (SimDrawAllScreen) has bound the two-layer multiview HUD framebuffer via
 	// FsVrBeginHudRender, which also made FsGetWindowSize / the 2D viewport
 	// report the HUD texture size, so all the pixel-space placement below lands
 	// on the HUD texture.  Only the primary flying HUD is rendered here (the
-	// combiner-glass symbology): the flat screen-space status text / warnings /
-	// damage bar that SimDrawForeground also draws are deliberately left out --
-	// they have no place on a cockpit-anchored glass, and the 3D cockpit
-	// interior stays in the world scene pass.
+	// combiner-glass symbology) plus the MISSILE!/STALL warnings below: the
+	// rest of the flat screen-space status text / damage bar that
+	// SimDrawForeground also draws is deliberately left out -- it has no
+	// place on a cockpit-anchored glass, and the 3D cockpit interior stays in
+	// the world scene pass.
 	const FsAirplane *playerPlane=GetPlayerAirplane();
 
 	// hud (FsHeadUpDisplay, the legacy pixel-space HUD renderer used only by
@@ -7067,6 +7356,42 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 		SimDraw2dAdf(cockpitIndicationSet);
 
 		SimDrawRadar(actualViewMode);
+	}
+
+	// MISSILE!/STALL warnings: SimDrawForeground draws these (screen-centre,
+	// see its own block around "!!MISSILE!!"/"!!YOU ARE LOCKED ON!!"/"STALL")
+	// but SimDrawForeground itself is entirely skipped in VR (SimDrawScreen's
+	// `if(0==FsVrIsActive())` gate) -- kept textually duplicated here rather
+	// than factored into a shared helper (three near-trivial FsDrawString
+	// calls, not worth a new abstraction) but the condition chain, strings
+	// and colours below must stay IDENTICAL to SimDrawForeground's copy so
+	// VR and flat can never drift on when a pilot sees these. Positioned
+	// a quarter of the HUD texture height ABOVE the HUD's own visual centre
+	// (HUD_CENTER_Y_FRAC=2/3, see SimDrawAllScreen's HUD-quad vertical
+	// re-centre comment) so the text never overlaps the collimated reticle,
+	// which now sits at that same visual centre.
+	if(NULL!=playerPlane && YSTRUE==playerPlane->Prop().IsActive() && YSTRUE!=demoMode)
+	{
+		int warnWid,warnHei;
+		FsGetWindowSize(warnWid,warnHei);
+		int sx=warnWid/2;
+		const double HUD_CENTER_Y_FRAC=2.0/3.0; // Mirrors SimDrawAllScreen's HUD_CENTER_Y_FRAC exactly.
+		int sy=(int)(warnHei*HUD_CENTER_Y_FRAC)-warnHei/4;
+		if(bulletHolder.IsLockedOn(playerPlane)==YSTRUE)
+		{
+			sx-=40;
+			FsDrawString(sx,sy,"!!MISSILE!!",YsRed());
+		}
+		else if(IsLockedOn(playerPlane)==YSTRUE)
+		{
+			sx-=80;
+			FsDrawString(sx,sy,"!!YOU ARE LOCKED ON!!",YsRed());
+		}
+		else if(playerPlane->Prop().GetFlightState()==FSSTALL)
+		{
+			sx-=30;
+			FsDrawString(sx,sy,"STALL",YsYellow());
+		}
 	}
 }
 
@@ -11852,6 +12177,21 @@ void FsSimulation::CheckContinueDraw(void) const
 
 	SimDrawScreen(0.0,cockpitIndicationSet,YSFALSE,YSFALSE,YSFALSE,mainWindowActualViewMode);
 	SimDrawGuiDialog();
+
+	// Keep the VR GUI state block (fsvr.h's FsVrGuiDataPointer/
+	// FsVrGuiMenuPointer, written by SimComputeVrGuiState) fresh for the
+	// ENTIRE lifetime of the continue/replay dialog, not just while
+	// SimDrawAllScreen happens to run: SimDrawAllScreen -- SimComputeVrGuiState's
+	// only other caller -- is only invoked while simState==FSSIMSTATE_RUNNING
+	// (DrawInNormalSimulationMode), so without this call the block freezes
+	// the instant this dialog opens (frozen at whatever it last read during
+	// normal flight) and never reflects that a dialog is genuinely up for as
+	// long as CheckContinueDraw is the one drawing it.
+	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
+	{
+		SimComputeVrGuiState();
+	}
+
 	SimDrawFlush(); // <- Swap buffers inside.
 
 }

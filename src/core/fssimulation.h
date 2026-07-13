@@ -606,6 +606,15 @@ public:
 	YSBOOL NeedRedraw(void) const;
 
 	void DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE simState,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const;
+	/*! Truthfully clears the VR GUI state block (FsVrGuiDataPointer's
+	    dialogVisible/apMenu + the menu-label block) for every
+	    DrawInNormalSimulationMode branch that does not itself keep it fresh
+	    (RUNNING's SimDrawAllScreen and CHECKCONTINUE's CheckContinueDraw do) --
+	    see DrawInNormalSimulationMode's doc comment for why this is needed:
+	    without it, the block goes stale (frozen at its last value) the
+	    instant the sim leaves RUNNING, which could otherwise read as a ghost
+	    dialog-open indicator with nothing actually open. */
+	void SimClearVrGuiStateIfActive(void) const;
 	void DrawInClientMode(const class FsClientRunLoop &clientModeRunLoop) const;
 	void DrawInServerMode(const class FsServerRunLoop &serverModeRunLoop) const;
 
@@ -894,7 +903,11 @@ protected:
 	    speed/altitude, VOR/ADF, radar) with the 2D coordinate system sized to
 	    the HUD texture.  Caller has already bound the off-screen HUD framebuffer
 	    (FsVrBeginHudRender). */
-	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode) const;
+	/*! demoMode gates the MISSILE!/STALL warning block (mirroring
+	    SimDrawForeground's own demoMode!=YSTRUE check) -- see this
+	    function's body for the exact condition chain, kept textually
+	    identical to SimDrawForeground's copy on purpose. */
+	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode,YSBOOL demoMode) const;
 	/*! VR single-pass-stereo in-flight GUI dialog: draws whatever modal
 	    in-flight dialog (autopilot menu, radio-comm menus, replay/continue
 	    dialogs, ...) is currently open, with the 2D coordinate system sized

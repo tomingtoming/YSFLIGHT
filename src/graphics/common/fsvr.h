@@ -44,6 +44,39 @@
 //                              throttle value, as opposed to never touched)
 //   [7..15] reserved, always 0
 
+// Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
+//   A VR controller runtime (WebXR in ysflight-web) writes each grabbed
+//   hand's grip pose here every frame, in VIEWER space (the browser's own
+//   convention: x right, y up, -z forward, meters / unit quaternion) --
+//   i.e. relative to wherever the pilot's HEAD currently is, NOT the
+//   engine's world frame.  FsSimulation reads it (SimDrawAllScreen's
+//   multiview branch) to draw the engine's own stick/throttle DNM models
+//   (misc/stick.dnm, misc/throttle.dnm -- the exact same models/draw calls
+//   the calibration screen uses, see FsFlightControl::DrawJoystick/
+//   DrawThrottle in fscontrol.cpp) at the grip position, so the pilot sees
+//   the virtual HOTAS move with their wrist.  This works out cheaply
+//   because FsVisual::Draw's (pos,att) parameters are ALREADY defined
+//   relative to the current eye ("the viewpoint is at the origin looking
+//   straight ahead", see SimDrawJoystick's memo in fssimulation.cpp) --
+//   the exact same frame a viewer-space grip pose is already given in, up
+//   to the WebXR-vs-engine handedness flip (negate z) -- so no per-frame
+//   world-transform reconstruction is needed, just that one flip.
+//   Right hand: indices [0..7].  Left hand: indices [8..15].
+//     [0..2]  grip position (x,y,z), viewer space
+//     [3..6]  grip orientation quaternion (x,y,z,w), viewer space
+//     [7]     grabbed (0/1; 1 iff the right/stick hand is CURRENTLY
+//             effective-grabbed -- physical squeeze OR sticky latch, the
+//             same condition that drives FsVrControlDataPointer[0]).
+//             Informational/redundant with FsVrControlDataPointer[0]
+//             (which is what the engine actually gates drawing on);
+//             written here too so a hand-pose-only consumer is
+//             self-contained.
+//     [8..10] grip position (x,y,z), viewer space, LEFT hand
+//     [11..14] grip orientation quaternion (x,y,z,w), viewer space, LEFT hand
+//     [15]    reserved, always 0 (the engine gates the left/throttle hand
+//             on FsVrControlDataPointer[4] instead -- see fsvr.h's control-
+//             data doc comment above)
+
 extern "C"
 {
 	int FsVrIsActive(void);
@@ -60,6 +93,10 @@ extern "C"
 	int FsVrIsMultiview(void);
 	void FsVrSetMultiview(int multiview);
 	float *FsVrControlDataPointer(void);
+
+	/*! See the FsVrHandPoseDataPointer doc comment above this extern "C"
+	    block for the 16-float layout. */
+	float *FsVrHandPoseDataPointer(void);
 
 	/*! Head-up-display composite state block (8 floats).  The VR runtime (the
 	    WebXR layer) writes it when single-pass-stereo mode engages; the
@@ -248,6 +285,20 @@ extern "C"
 	    scene draw they are measuring, so there is no build flag to disable
 	    it. */
 	float *FsVrPerfDataPointer(void);
+
+	/*! TEST-ONLY: forces the VR G-load blackout/redout full-field tint
+	    (FsVrDrawFullScreenTint, called from FsSimulation::SimDrawAllScreen)
+	    to a fixed colour/alpha regardless of the player's actual G, so a
+	    headless test can exercise the tint without a real high-G manoeuvre.
+	    Block layout (5 floats):
+	      [0] active (0/1) -- while nonzero, SimDrawAllScreen uses [1..4]
+	          verbatim instead of computing G-based blackout/redout.
+	      [1..3] r,g,b (0..1 each)
+	      [4] alpha (0..1)
+	    See FsVrSetBlackoutOverride (the writer) and
+	    FsVrBlackoutOverridePointer (the reader, read by SimDrawAllScreen). */
+	float *FsVrBlackoutOverridePointer(void);
+	void FsVrSetBlackoutOverride(int active,float r,float g,float b,float alpha);
 }
 
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:

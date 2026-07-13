@@ -987,6 +987,43 @@ void FsVrDrawReticle(const float lineVtx[24],const YsColor &col)
 	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
 }
 
+// ---- VR single-pass-stereo hand-held HOTAS prop draw bracket --------------
+// See fsopengl.h's doc comment.  Unlike the reticle/tint above (which draw
+// raw world-space vertices and so need the TRUE camera transform composed
+// into the shared renderer's modelview), FsVisualDnm::Draw(pos,att) is its
+// own self-contained model matrix (see fscontrol.cpp's DrawJoystick: "New
+// FsVisual::Draw assumes the viewpoint is at the origin looking straight
+// ahead") -- it overrides-and-restores the shared renderer's modelview
+// itself (ysshellextgl_gl2.cpp's Render), so this bracket only needs to
+// fix up what Render does NOT touch: the projection (in case the HUD's 2D
+// off-screen pass left an ortho projection bound) and the viewport (same
+// reason FsVrDrawHudQuad restores it), plus depth testing.
+static GLboolean fsVrHandPropWasDepthTest=GL_TRUE;
+
+void FsVrBeginHandPropDraw(void)
+{
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	fsVrHandPropWasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	glDisable(GL_DEPTH_TEST); // A hand-held prop must not be swallowed by nearer cockpit geometry (same discipline as FsVrDrawReticle).
+}
+
+void FsVrEndHandPropDraw(void)
+{
+	if(GL_FALSE!=fsVrHandPropWasDepthTest)
+	{
+		glEnable(GL_DEPTH_TEST);
+	}
+}
+
 // ---- VR single-pass-stereo in-flight-GUI-dialog composite ----------------
 // Same shape as the HUD trio above, driven by FsVrGuiDataPointer instead of
 // FsVrHudDataPointer.  FsVrSetHudRenderTarget/FsSetWindowSizeOverride are
@@ -1052,6 +1089,70 @@ void FsVrDrawGuiQuad(const float corner[12])
 	glDisable(GL_CULL_FACE);
 
 	YsGLSLRenderHudQuad(fsHudQuadRenderer,corner,guiTexArray);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
+// ---- VR single-pass-stereo G-load blackout/redout full-field tint -------
+// Same matrix/state-save pattern as FsVrDrawReticle (world-space geometry
+// through the shared VariColor3D renderer, already stereo-projected by this
+// frame's FsSetSceneProjection), but a FILLED quad (GL_TRIANGLE_FAN, like
+// fsgroundskygl2.0.cpp's GL_TRIANGLE_STRIP/GL_TRIANGLES precedent on this
+// same renderer) instead of GL_LINES, since this is a solid colour overlay,
+// not line art.
+void FsVrDrawFullScreenTint(const float corner[12],float r,float g,float b,float alpha)
+{
+	if(alpha<=0.0f)
+	{
+		return; // Early-out: no GPU cost / no state churn when there is no G-load effect active.
+	}
+
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	// Restore the scene (eye-0) viewport (the HUD/GUI off-screen passes leave
+	// their own texture-sized viewport bound; whichever ran last, always
+	// reset it here rather than relying on draw order).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	// A blackout/redout tint must stay full-strength regardless of fog (same
+	// reasoning as FsVrDrawReticle -- fog is re-established next frame).
+	FsFogOff();
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // Covers everything -- scene, HUD glass, reticle -- regardless of depth.
+	glDisable(GL_CULL_FACE);
+
+	GLfloat colBuf[4*4];
+	for(int i=0; i<4; ++i)
+	{
+		colBuf[i*4  ]=r;
+		colBuf[i*4+1]=g;
+		colBuf[i*4+2]=b;
+		colBuf[i*4+3]=alpha;
+	}
+
+	auto *renderer=YsGLSLSharedVariColor3DRenderer();
+	YsGLSLUse3DRenderer(renderer);
+	YsGLSLDrawPrimitiveVtxColfv(renderer,GL_TRIANGLE_FAN,4,corner,colBuf);
+	YsGLSLEndUse3DRenderer(renderer);
 
 	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
 	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);

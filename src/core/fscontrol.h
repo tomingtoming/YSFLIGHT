@@ -282,7 +282,16 @@ public:
 
 	YSRESULT VerifyAndFixJoystickAxisAssignment(FsControlAssignment &ctlAssign);
 	void DrawJoystick(const YsVec3 &pos,const YsAtt3 &att) const;
+	/*! Same as DrawJoystick(pos,att), but the model is additionally scaled
+	    (uniformly, about its own origin -- the stick's base) by scale
+	    before being placed at pos/att.  Needed because the calibration-
+	    diorama stick/throttle DNM assets are authored console-sized (see
+	    fscontrol.cpp's DrawJoystick doc comment); a VR hand-held prop
+	    needs them shrunk to roughly hand/HOTAS size. */
+	void DrawJoystick(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const;
 	void DrawThrottle(const YsVec3 &pos,const YsAtt3 &att) const;
+	/*! See DrawJoystick(pos,att,scale)'s doc comment. */
+	void DrawThrottle(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const;
 	void DrawRudder(const YsVec3 &pos,const YsAtt3 &att) const;
 	YSRESULT CenterJoystick(class FsControlAssignment &ctlAssign);
 private:
