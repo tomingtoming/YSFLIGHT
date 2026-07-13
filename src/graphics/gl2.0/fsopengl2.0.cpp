@@ -987,6 +987,43 @@ void FsVrDrawReticle(const float lineVtx[24],const YsColor &col)
 	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
 }
 
+// ---- VR single-pass-stereo hand-held HOTAS prop draw bracket --------------
+// See fsopengl.h's doc comment.  Unlike the reticle/tint above (which draw
+// raw world-space vertices and so need the TRUE camera transform composed
+// into the shared renderer's modelview), FsVisualDnm::Draw(pos,att) is its
+// own self-contained model matrix (see fscontrol.cpp's DrawJoystick: "New
+// FsVisual::Draw assumes the viewpoint is at the origin looking straight
+// ahead") -- it overrides-and-restores the shared renderer's modelview
+// itself (ysshellextgl_gl2.cpp's Render), so this bracket only needs to
+// fix up what Render does NOT touch: the projection (in case the HUD's 2D
+// off-screen pass left an ortho projection bound) and the viewport (same
+// reason FsVrDrawHudQuad restores it), plus depth testing.
+static GLboolean fsVrHandPropWasDepthTest=GL_TRUE;
+
+void FsVrBeginHandPropDraw(void)
+{
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	fsVrHandPropWasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	glDisable(GL_DEPTH_TEST); // A hand-held prop must not be swallowed by nearer cockpit geometry (same discipline as FsVrDrawReticle).
+}
+
+void FsVrEndHandPropDraw(void)
+{
+	if(GL_FALSE!=fsVrHandPropWasDepthTest)
+	{
+		glEnable(GL_DEPTH_TEST);
+	}
+}
+
 // ---- VR single-pass-stereo in-flight-GUI-dialog composite ----------------
 // Same shape as the HUD trio above, driven by FsVrGuiDataPointer instead of
 // FsVrHudDataPointer.  FsVrSetHudRenderTarget/FsSetWindowSizeOverride are

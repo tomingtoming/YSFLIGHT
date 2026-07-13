@@ -1148,7 +1148,17 @@ void FsFlightControl::PrepareJoystickPolygonModel(void)
 	}
 }
 
+// misc/stick.dnm is authored as a whole floor-standing console (a ~0.48 x
+// 0.48 m base plate plus a rod/grip rising ~0.48 m above it, ~0.67 m tall
+// overall in the model's own unscaled units) for the calibration diorama's
+// third-person view (FsCenterJoystick::Draw) -- see DrawJoystick(pos,att,
+// scale) below for shrinking it to hand/HOTAS size.
 void FsFlightControl::DrawJoystick(const YsVec3 &pos,const YsAtt3 &att) const
+{
+	DrawJoystick(pos,att,1.0);
+}
+
+void FsFlightControl::DrawJoystick(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const
 {
 	PrepareJoystickPolygonModel();
 	if(stickDnm!=NULL)
@@ -1170,18 +1180,44 @@ void FsFlightControl::DrawJoystick(const YsVec3 &pos,const YsAtt3 &att) const
 			stickDnm->SetState(7,0,2,-ctlAileron);
 		}
 		stickDnm->CacheTransformation();
-		stickDnm->Draw(pos,att);
+
+		// Same (pos,att)->model-matrix construction FsVisualDnm::Draw(pos,att)
+		// uses internally, plus a trailing uniform Scale so the same call
+		// works whether or not the caller needs to shrink the model (scale=1.0
+		// is a plain no-op multiplication, kept unconditional rather than
+		// special-cased so there is only one code path to keep in sync with
+		// FsVisualDnm::Draw(pos,att)'s own construction).
+		YsMatrix4x4 tfm;
+		tfm.Translate(pos);
+		tfm.RotateXZ(att.h());
+		tfm.RotateZY(att.p());
+		tfm.RotateXY(att.b());
+		tfm.Scale(scale,scale,scale);
+		stickDnm->Draw(tfm,FSVISUAL_DRAWALL);
 	}
 }
 
 void FsFlightControl::DrawThrottle(const YsVec3 &pos,const YsAtt3 &att) const
+{
+	DrawThrottle(pos,att,1.0);
+}
+
+void FsFlightControl::DrawThrottle(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const
 {
 	PrepareJoystickPolygonModel();
 	if(throttleDnm!=NULL)
 	{
 		throttleDnm->SetState(0,0,1,ctlThrottle);
 		throttleDnm->CacheTransformation();;
-		throttleDnm->Draw(pos,att);
+
+		// See DrawJoystick(pos,att,scale)'s comment on this construction.
+		YsMatrix4x4 tfm;
+		tfm.Translate(pos);
+		tfm.RotateXZ(att.h());
+		tfm.RotateZY(att.p());
+		tfm.RotateXY(att.b());
+		tfm.Scale(scale,scale,scale);
+		throttleDnm->Draw(tfm,FSVISUAL_DRAWALL);
 	}
 }
 

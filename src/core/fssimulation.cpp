@@ -6400,6 +6400,18 @@ void FsSimulation::SimMakeUpCockpitIndicationSet(class FsCockpitIndicationSet &c
 	}
 }
 
+// Rotates vector v by unit quaternion (qx,qy,qz,qw): v'=v+2*qw*(qv x v)+
+// 2*qv x (qv x v), the standard quaternion-vector-rotation identity (no
+// separate YsQuat class exists in ysclass -- YsAtt3 is Euler-angle based --
+// so this is the small bit of quaternion math the VR hand-pose block (see
+// fsvr.h's FsVrHandPoseDataPointer) needs on the read side).
+static YsVec3 FsVrRotateVecByQuat(const YsVec3 &v,double qx,double qy,double qz,double qw)
+{
+	const YsVec3 qv(qx,qy,qz);
+	const YsVec3 t=(qv^v)*2.0;
+	return v+qw*t+(qv^t);
+}
+
 void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const
 {
 	FsVrMarkSimDrawn();
@@ -6689,6 +6701,80 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 					FsVrDrawReticle(reticleVtx,hud->hudCol);
 				}
 				FsVrPerfAccumulate(5,FsVrPerfNow()-reticleT0);
+			}
+		}
+
+		// VR hand-held HOTAS props: while a hand is grabbing the virtual
+		// stick (right) or throttle (left), draw the engine's own
+		// calibration-diorama DNM models (misc/stick.dnm, misc/
+		// throttle.dnm) at the grip position via the ready-made
+		// FsFlightControl::DrawJoystick/DrawThrottle -- the SAME calls the
+		// calibration screen uses, so the model articulates from the LIVE
+		// ctlElevator/ctlAileron/ctlThrottle every frame (which
+		// ApplyVrControlOverride feeds from this same VR session), giving a
+		// stick/throttle that visibly moves as the pilot's wrist does.
+		//
+		// Grip pose arrives from the WebXR layer (fswebxr.cpp) in VIEWER
+		// space (fsvr.h's FsVrHandPoseDataPointer) -- relative to wherever
+		// the pilot's head currently is, in the browser's own convention (x
+		// right, y up, -z forward) -- which needs only the WebXR-to-engine
+		// handedness flip (negate z) to become exactly the frame
+		// FsVisualDnm::Draw(pos,att) already expects: "the viewpoint is at
+		// the origin looking straight ahead" (see SimDrawJoystick's memo
+		// above and DrawJoystick's own doc comment in fscontrol.cpp) -- the
+		// SAME per-eye camera-space frame a viewer-space grip pose is
+		// already given in, up to that flip, so no world-space
+		// reconstruction (camToWorld) is needed here at all, unlike the HUD
+		// glass/reticle/tint above (which draw raw world-space vertices).
+		// This does mean the ~3 cm eye-vs-viewer offset is not corrected
+		// for -- an imperceptible approximation for a hand-held prop.
+		//
+		// Grabbed gating reads FsVrControlDataPointer directly (the SAME
+		// block/threshold FsFlightControl::ApplyVrControlOverride already
+		// uses for stick/throttle deflection), so the prop drawn here can
+		// never show contradictory state ("grabbed" prop with a
+		// non-VR-controlled stick, or vice versa).
+		{
+			const float *handPose=FsVrHandPoseDataPointer();
+			const float *handCtlData=FsVrControlDataPointer();
+
+			// misc/stick.dnm / misc/throttle.dnm are authored as a whole
+			// floor-standing console (a ~0.48 x 0.48 m base plate plus a
+			// rod/lever rising ~0.48 m above it -- see fscontrol.cpp's
+			// DrawJoystick doc comment) for the calibration diorama's
+			// third-person view -- far too big to float in a pilot's hand.
+			// This brings the visible rod/lever (0 to ~0.483 m in the
+			// model's own unscaled units) down to ~18 cm.
+			const double HANDPROP_SCALE=0.375;
+
+			if(0.5f<handCtlData[0]) // Right hand: virtual stick grabbed.
+			{
+				const YsVec3 pos(handPose[0],handPose[1],-handPose[2]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,-1.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0, 0.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
+				const YsVec3 up (upV.x(), upV.y(), -upV.z());
+				YsAtt3 att;
+				att.SetTwoVector(fwd,up);
+
+				FsVrBeginHandPropDraw();
+				userInput.DrawJoystick(pos,att,HANDPROP_SCALE);
+				FsVrEndHandPropDraw();
+			}
+
+			if(0.5f<handCtlData[4]) // Left hand: virtual throttle grabbed.
+			{
+				const YsVec3 pos(handPose[8],handPose[9],-handPose[10]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,-1.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0, 0.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
+				const YsVec3 up (upV.x(), upV.y(), -upV.z());
+				YsAtt3 att;
+				att.SetTwoVector(fwd,up);
+
+				FsVrBeginHandPropDraw();
+				userInput.DrawThrottle(pos,att,HANDPROP_SCALE);
+				FsVrEndHandPropDraw();
 			}
 		}
 

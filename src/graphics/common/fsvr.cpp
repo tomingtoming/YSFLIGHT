@@ -83,6 +83,21 @@ extern "C" float *FsVrControlDataPointer(void)
 	return fsVrCtlData;
 }
 
+// See fsvr.h's FsVrHandPoseDataPointer doc comment for the slot layout.
+// Identity quaternion (w=1) in both hands' slots by default so a reader
+// that runs before the first write never sees a degenerate all-zero
+// quaternion.
+static float fsVrHandPose[16]=
+{
+	0.0f,0.0f,0.0f, 0.0f,0.0f,0.0f,1.0f, 0.0f,
+	0.0f,0.0f,0.0f, 0.0f,0.0f,0.0f,1.0f, 0.0f
+};
+
+extern "C" float *FsVrHandPoseDataPointer(void)
+{
+	return fsVrHandPose;
+}
+
 static float fsVrHudData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 
 extern "C" float *FsVrHudDataPointer(void)

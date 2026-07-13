@@ -88,6 +88,18 @@ void FsVrDrawHudQuad(const float corner[12]);
 // off; replaces the gun crosshair that used to be baked into the flat HUD glass.
 void FsVrDrawReticle(const float lineVtx[24],const YsColor &col);
 
+// VR single-pass-stereo hand-held HOTAS prop draw bracket (see
+// fsopengl2.0.cpp).  Wraps a call to FsFlightControl::DrawJoystick/
+// DrawThrottle (an ordinary FsVisualDnm::Draw, NOT the raw-vertex world-space
+// path the reticle/tint above use) so the model cannot be swallowed by
+// nearer cockpit geometry already in the depth buffer: re-establishes the
+// scene's cached stereo projection + eye-0 viewport (same restore
+// FsVrDrawReticle performs, in case the HUD/GUI off-screen passes left them
+// pointed at a texture-sized ortho setup instead) and disables depth
+// testing, saving the previous state.  Always pair Begin with End.
+void FsVrBeginHandPropDraw(void);
+void FsVrEndHandPropDraw(void);
+
 // VR single-pass-stereo in-flight-GUI-dialog composite (see fsopengl2.0.cpp).
 // Same bracket/composite shape as the HUD trio above, driven by
 // FsVrGuiDataPointer (fsvr.h) instead of FsVrHudDataPointer: renders whatever
