@@ -2854,9 +2854,11 @@ void FsSimulation::DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE si
 	switch(simState)
 	{
 	case FSSIMSTATE_CENTERJOYSTICK:
+		SimClearVrGuiStateIfActive();
 		CenterJoystickDraw();
 		break;
 	case FSSIMSTATE_INITIALIZE:
+		SimClearVrGuiStateIfActive();
 		FsClearScreenAndZBuffer(YsBlue());
 		break;
 	case FSSIMSTATE_RUNNING:
@@ -2866,11 +2868,43 @@ void FsSimulation::DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE si
 		CheckContinueDraw();
 		break;
 	case FSSIMSTATE_TERMINATING:
+		SimClearVrGuiStateIfActive();
 		FsClearScreenAndZBuffer(YsBlue());
 		break;
 	case FSSIMSTATE_OVER:
+		SimClearVrGuiStateIfActive();
 		FsClearScreenAndZBuffer(YsBlue());
 		break;
+	}
+}
+
+// Fix for the VR "ghost ESC dial" bug: FsVrGuiDataPointer()'s dialogVisible/
+// apMenu/guiMenu block (SimComputeVrGuiState) is normally kept fresh every
+// frame from INSIDE SimDrawAllScreen's multiview branch -- but
+// SimDrawAllScreen only ever runs while simState==FSSIMSTATE_RUNNING (see
+// the switch above), so the instant the sim leaves RUNNING for ANY other
+// reason (a continue-dialog prompt, centering the joystick, terminating,
+// between flights) that block goes STALE, frozen at whatever it last was.
+// If it happened to read dialogVisible==1 the moment the state left RUNNING,
+// nothing else in the engine (the OLD code) ever wrote it back to 0 for the
+// states that don't draw a real dialog at all (CENTERJOYSTICK/INITIALIZE/
+// TERMINATING/OVER) -- that stale 1 would then persist across a session
+// boundary into a brand new flight's VR session (guiData is a static/global
+// block, not per-FsSimulation-instance), reading exactly like the reported
+// bug: a ghost ESC dial "at VR entry" with no real dialog anywhere.
+// Explicitly clearing it here, in every DrawInNormalSimulationMode branch
+// that does NOT itself keep the block fresh (CHECKCONTINUE's
+// CheckContinueDraw now does, see below), closes that gap: whenever nothing
+// is actually being shown, the block says so truthfully instead of holding
+// on to a stale answer.
+void FsSimulation::SimClearVrGuiStateIfActive(void) const
+{
+	if(0!=FsVrIsActive())
+	{
+		float *guiData=FsVrGuiDataPointer();
+		guiData[5]=0.0f;
+		guiData[6]=0.0f;
+		FsVrSetGuiMenu(NULL,0);
 	}
 }
 
@@ -11932,6 +11966,21 @@ void FsSimulation::CheckContinueDraw(void) const
 
 	SimDrawScreen(0.0,cockpitIndicationSet,YSFALSE,YSFALSE,YSFALSE,mainWindowActualViewMode);
 	SimDrawGuiDialog();
+
+	// Keep the VR GUI state block (fsvr.h's FsVrGuiDataPointer/
+	// FsVrGuiMenuPointer, written by SimComputeVrGuiState) fresh for the
+	// ENTIRE lifetime of the continue/replay dialog, not just while
+	// SimDrawAllScreen happens to run: SimDrawAllScreen -- SimComputeVrGuiState's
+	// only other caller -- is only invoked while simState==FSSIMSTATE_RUNNING
+	// (DrawInNormalSimulationMode), so without this call the block freezes
+	// the instant this dialog opens (frozen at whatever it last read during
+	// normal flight) and never reflects that a dialog is genuinely up for as
+	// long as CheckContinueDraw is the one drawing it.
+	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
+	{
+		SimComputeVrGuiState();
+	}
+
 	SimDrawFlush(); // <- Swap buffers inside.
 
 }

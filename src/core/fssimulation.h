@@ -606,6 +606,15 @@ public:
 	YSBOOL NeedRedraw(void) const;
 
 	void DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE simState,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const;
+	/*! Truthfully clears the VR GUI state block (FsVrGuiDataPointer's
+	    dialogVisible/apMenu + the menu-label block) for every
+	    DrawInNormalSimulationMode branch that does not itself keep it fresh
+	    (RUNNING's SimDrawAllScreen and CHECKCONTINUE's CheckContinueDraw do) --
+	    see DrawInNormalSimulationMode's doc comment for why this is needed:
+	    without it, the block goes stale (frozen at its last value) the
+	    instant the sim leaves RUNNING, which could otherwise read as a ghost
+	    dialog-open indicator with nothing actually open. */
+	void SimClearVrGuiStateIfActive(void) const;
 	void DrawInClientMode(const class FsClientRunLoop &clientModeRunLoop) const;
 	void DrawInServerMode(const class FsServerRunLoop &serverModeRunLoop) const;
 
