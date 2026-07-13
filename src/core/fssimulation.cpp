@@ -6452,7 +6452,29 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			}
 			vrState[4]=(float)woc;
 			vrState[5]=(float)wpnCount;
-			vrState[6]=0.0f;
+
+			// View-cycle position (see fsvr.h's doc comment on this block):
+			// where mainWindowViewmode currently sits along the SAME
+			// FSBTF_OUTSIDEPLAYERVIEW (desktop F2) external-view chain as
+			// FsSimulation::ViewingControl's FSBTF_OUTSIDEPLAYERVIEW case
+			// below -- so the web layer's left-Y view-cycle tap
+			// (fswebxr.cpp) can tell whether the NEXT F2 press would still
+			// advance the chain or whether F1 (back to cockpit) is what the
+			// pilot actually wants. 6 means "some other view entirely"
+			// (additional-airplane view, another-airplane view, tower/
+			// carrier, ...) -- treated the same as cockpit for the web
+			// layer's purposes (an F2 press from there enters the chain
+			// fresh at FSOUTSIDEPLAYERPLANE, same as from FSCOCKPITVIEW).
+			switch(mainWindowViewmode)
+			{
+			case FSCOCKPITVIEW:            vrState[6]=0.0f; break;
+			case FSOUTSIDEPLAYERPLANE:     vrState[6]=1.0f; break;
+			case FSFIXEDPOINTPLAYERPLANE:  vrState[6]=2.0f; break;
+			case FSVARIABLEPOINTPLAYERPLANE: vrState[6]=3.0f; break;
+			case FSFROMTOPOFPLAYERPLANE:   vrState[6]=4.0f; break;
+			case FSPLAYERPLANEFROMSIDE:    vrState[6]=5.0f; break;
+			default:                       vrState[6]=6.0f; break;
+			}
 			vrState[7]=0.0f;
 		}
 		else
@@ -6553,154 +6575,171 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// cockpit-anchored quad ~1 m in front of the pilot.  The multiview scene
 		// framebuffer is still bound when SimDrawScreen returns; FsVrBeginHud/
 		// EndHudRender bracket the off-screen detour and restore it.
-		const float *hudData=FsVrHudDataPointer();
-		if(0.0f!=hudData[0])
+		// Skip the HUD glass (off-screen render, composite quad, and the
+		// collimated gun reticle) entirely outside the cockpit view: none of
+		// this reads as sensible symbology once the pilot's eye is somewhere
+		// else in the world (chase cam, tower, fixed external point, ...) --
+		// the same FSCOCKPITVIEW gate the G-load tint block below already
+		// uses, for the identical reason. Skipping the WHOLE off-screen render
+		// (not just the composite) also saves the FsVrBeginHudRender/
+		// SimDrawVrHud/FsVrEndHudRender pass entirely while it would not be
+		// shown -- nothing else consumes the HUD texture this frame.  The
+		// MISSILE!/STALL warnings are baked into this same HUD texture (see
+		// SimDrawVrHud), so they are correctly hidden along with the rest of
+		// the glass; the GUI dialog quad, dial-guide data, hand-prop draw, and
+		// target designator marks are unaffected -- they stay visible in every
+		// view mode.
+		if(mainWindowActualViewMode.actualViewMode==FSCOCKPITVIEW)
 		{
-			const double hudT0=FsVrPerfNow();
-			FsVrBeginHudRender();
-			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode,demoMode);
-			FsVrEndHudRender();
-
-			// Cockpit-anchored quad, world space, from the pre-eye camera basis.
-			YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
-			if(YSOK==camToWorld.Invert())
+			const float *hudData=FsVrHudDataPointer();
+			if(0.0f!=hudData[0])
 			{
-				YsVec3 fwd,up,right;
-				camToWorld.Mul(fwd,YsZVec(),0.0);
-				camToWorld.Mul(up,YsYVec(),0.0);
-				camToWorld.Mul(right,YsXVec(),0.0);
+				const double hudT0=FsVrPerfNow();
+				FsVrBeginHudRender();
+				SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode,demoMode);
+				FsVrEndHudRender();
 
-				// Gunsight-parallax stopgap for the HUD GLASS: it is a single
-				// quad shared by both eyes, so it necessarily sits at a FINITE
-				// distance -- but the thing it is meant to align with (a
-				// bullet/gun-line path, or a distant target) is effectively at
-				// infinity. At the previous dist=1.0m, that mismatch reads as
-				// ~1.8deg of binocular parallax between the glass and where the
-				// pilot's eyes actually converge on a real target
-				// (atan(halfEyeSeparation/dist) with a ~3cm inter-eye
-				// baseline) -- enough to make the symbology visibly swim
-				// relative to the world. Pushing the glass out to 20m while
-				// scaling halfW proportionally (same 20x factor) keeps the
-				// EXACT SAME apparent size/position in each eye's view (the
-				// quad subtends the same angle -- pure distance/size trade, no
-				// visual change to a cyclopean viewer) but cuts the parallax to
-				// atan(0.03/2/20)=~0.09deg, an order of magnitude better and
-				// close enough to unnoticeable in practice for the read-only
-				// symbology (heading tape, speed/altitude, etc.).  The GUN
-				// CROSSHAIR, which the pilot actually aims through, is no longer
-				// on this glass at all: it is drawn separately below as a true
-				// per-eye collimated world-space reticle (FsVrDrawReticle),
-				// which is the real zero-parallax fix.
-				const double dist=20.0;  // 20 m in front of the eye (was 1 m -- see the parallax note above).
-				const double halfW=0.45*20.0; // Scaled proportionally with dist: same apparent size as the old 1m/0.45 glass.
-				// Height follows the HUD texture's aspect ratio: the engine
-				// lays the HUD out for the aspect it is given, and side/bottom
-				// elements (bank indicator, compass rose) assume a wide
-				// screen -- a square glass clips them at the edges.
-				const float *hudData=FsVrHudDataPointer();
-				const double aspect=(0.0<hudData[3] && 0.0<hudData[4] ? (double)hudData[4]/(double)hudData[3] : 1.0);
-				const double halfH=halfW*aspect;
-				// Vertical re-centre (gunsight-vs-HUD-content alignment fix):
-				// SimDrawVrHud lays the HUD out via
-				// hud->SetAreaByCenter(texW/2,texH*HUD_CENTER_Y_FRAC,...) --
-				// i.e. the HUD's OWN established centre (where the flat-mode
-				// gun crosshair used to sit, and where essentially every other
-				// symbology element -- weapon list, G/Mach, fuel, gear/flap/
-				// brake, climb ratio, bank, DrawHeading's tape, ... -- is laid
-				// out relative to, see fshud.cpp) is at window-Y =
-				// texH*HUD_CENTER_Y_FRAC, i.e. BELOW the texture's true
-				// geometric middle (texH/2) since HUD_CENTER_Y_FRAC (2/3) >
-				// 1/2. The quad built below is centred on that true middle,
-				// which is also exactly where the collimated reticle sits
-				// (FsVrDrawReticle, drawn on the fixed boresight ray below) --
-				// so before this offset, the HUD's own content read as
-				// sitting BELOW the gunsight (the reported bug: "everything
-				// except the gunsight sits too low").
-				//   A point drawn at window-Y=Yc is always
-				//   halfH*(1-2*Yc/texH) above whatever the quad's CURRENT
-				//   centre is (window-Y=0 -> +halfH, the "up" edge;
-				//   window-Y=texH -> -halfH, the "down" edge -- see
-				//   YsGLSLRenderHudQuad's BL/BR/TR/TL<->(0,0)/(1,0)/(1,1)/
-				//   (0,1) UV mapping, ysglslhudquadrenderer.c). For
-				//   Yc=texH*HUD_CENTER_Y_FRAC that is
-				//   halfH*(1-2*HUD_CENTER_Y_FRAC) = -halfH/3, i.e. one third
-				//   of a half-height BELOW the quad's own centre.
-				//   Shifting the quad's centre UP by halfH/3 moves that exact
-				//   point back onto the (fixed, unmoved) boresight ray:
-				//   NEW_CENTER = OLD_CENTER + up*halfH*(2*HUD_CENTER_Y_FRAC-1)
-				//              = OLD_CENTER + up*halfH/3.
-				// (Also mirrored in SimDrawVrHud's MISSILE!/STALL warning
-				// placement below -- both must use the SAME
-				// HUD_CENTER_Y_FRAC so the warnings never overlap the
-				// reticle.)
-				const double HUD_CENTER_Y_FRAC=2.0/3.0;
-				const double centerOffsetUp=halfH*(2.0*HUD_CENTER_Y_FRAC-1.0); // = halfH/3.
-				const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist+up*centerOffsetUp;
-				const YsVec3 bl=center-right*halfW-up*halfH;
-				const YsVec3 br=center+right*halfW-up*halfH;
-				const YsVec3 tr=center+right*halfW+up*halfH;
-				const YsVec3 tl=center-right*halfW+up*halfH;
-				const float corner[12]=
+				// Cockpit-anchored quad, world space, from the pre-eye camera basis.
+				YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+				if(YSOK==camToWorld.Invert())
 				{
-					(float)bl.x(),(float)bl.y(),(float)bl.z(),
-					(float)br.x(),(float)br.y(),(float)br.z(),
-					(float)tr.x(),(float)tr.y(),(float)tr.z(),
-					(float)tl.x(),(float)tl.y(),(float)tl.z()
-				};
-				FsVrDrawHudQuad(corner);
-				FsVrPerfAccumulate(3,FsVrPerfNow()-hudT0);
+					YsVec3 fwd,up,right;
+					camToWorld.Mul(fwd,YsZVec(),0.0);
+					camToWorld.Mul(up,YsYVec(),0.0);
+					camToWorld.Mul(right,YsXVec(),0.0);
 
-				const double reticleT0=FsVrPerfNow();
-				// Collimated gunsight reticle: the gun crosshair is no longer
-				// baked into the flat HUD glass for VR (SimDrawVrHud passes
-				// drawCrossHair=NO).  Draw it here instead as real world-space
-				// 3D line geometry FAR (2000 m) along the boresight, rendered
-				// through each eye's own stereo projection in the scene FBO --
-				// so stereo parallax makes it read as collimated at optical
-				// infinity and head translation off the boresight no longer
-				// swims the aim point the way the finite-distance glass does.
-				// Gated identically to the crosshair it replaces: only when the
-				// player flies a live HUD-equipped plane (same CheckHUDVisible
-				// as SimDrawVrHud), and only while the reticle is enabled
-				// (hudData[6]; ?vrreticle=0 falls back to the baked crosshair).
-				const FsAirplane *reticlePlane=GetPlayerAirplane();
-				if(0.0f!=hudData[6] &&
-				   NULL!=reticlePlane &&
-				   YSTRUE==reticlePlane->IsAlive() &&
-				   YSTRUE==reticlePlane->Prop().CheckHUDVisible())
-				{
-					// D far enough that a ~64 mm head translation shifts the
-					// apparent aim point by an unnoticeable angle; halfSize sized
-					// for a constant apparent width of ~0.6 deg total
-					// (halfSize=D*tan(0.3deg)).  fwd/up/right are the pre-head-
-					// tracking cockpit camera basis (same basis the HUD glass
-					// quad above is built from) -- in cockpit view with neutral
-					// head look-around this equals the airframe boresight.
-					const double D=2000.0;
-					const double halfSize=D*tan(YsDegToRad(0.3)); // ~10.5 m.
-					// Match FsHeadUpDisplay::DrawCrossHair's proportions: the
-					// vertical arms are 2/3 of the horizontal arms (lng=lat*2/3),
-					// and the center blank is ~4 px against a lat=hudWid/20 arm
-					// on the 768x432 HUD glass (hudWid=hei*8/9=384 -> 4/19.2).
-					const double vHalf=halfSize*2.0/3.0;
-					const double gap=halfSize*(4.0/(384.0/20.0));
-					const YsVec3 c=mainWindowActualViewMode.viewPoint+fwd*D;
-					const YsVec3 hL0=c-right*halfSize,hL1=c-right*gap;
-					const YsVec3 hR0=c+right*gap,     hR1=c+right*halfSize;
-					const YsVec3 vB0=c-up*vHalf,      vB1=c-up*gap;
-					const YsVec3 vT0=c+up*gap,        vT1=c+up*vHalf;
-					const float reticleVtx[24]=
+					// Gunsight-parallax stopgap for the HUD GLASS: it is a single
+					// quad shared by both eyes, so it necessarily sits at a FINITE
+					// distance -- but the thing it is meant to align with (a
+					// bullet/gun-line path, or a distant target) is effectively at
+					// infinity. At the previous dist=1.0m, that mismatch reads as
+					// ~1.8deg of binocular parallax between the glass and where the
+					// pilot's eyes actually converge on a real target
+					// (atan(halfEyeSeparation/dist) with a ~3cm inter-eye
+					// baseline) -- enough to make the symbology visibly swim
+					// relative to the world. Pushing the glass out to 20m while
+					// scaling halfW proportionally (same 20x factor) keeps the
+					// EXACT SAME apparent size/position in each eye's view (the
+					// quad subtends the same angle -- pure distance/size trade, no
+					// visual change to a cyclopean viewer) but cuts the parallax to
+					// atan(0.03/2/20)=~0.09deg, an order of magnitude better and
+					// close enough to unnoticeable in practice for the read-only
+					// symbology (heading tape, speed/altitude, etc.).  The GUN
+					// CROSSHAIR, which the pilot actually aims through, is no longer
+					// on this glass at all: it is drawn separately below as a true
+					// per-eye collimated world-space reticle (FsVrDrawReticle),
+					// which is the real zero-parallax fix.
+					const double dist=20.0;  // 20 m in front of the eye (was 1 m -- see the parallax note above).
+					const double halfW=0.45*20.0; // Scaled proportionally with dist: same apparent size as the old 1m/0.45 glass.
+					// Height follows the HUD texture's aspect ratio: the engine
+					// lays the HUD out for the aspect it is given, and side/bottom
+					// elements (bank indicator, compass rose) assume a wide
+					// screen -- a square glass clips them at the edges.
+					const float *hudData=FsVrHudDataPointer();
+					const double aspect=(0.0<hudData[3] && 0.0<hudData[4] ? (double)hudData[4]/(double)hudData[3] : 1.0);
+					const double halfH=halfW*aspect;
+					// Vertical re-centre (gunsight-vs-HUD-content alignment fix):
+					// SimDrawVrHud lays the HUD out via
+					// hud->SetAreaByCenter(texW/2,texH*HUD_CENTER_Y_FRAC,...) --
+					// i.e. the HUD's OWN established centre (where the flat-mode
+					// gun crosshair used to sit, and where essentially every other
+					// symbology element -- weapon list, G/Mach, fuel, gear/flap/
+					// brake, climb ratio, bank, DrawHeading's tape, ... -- is laid
+					// out relative to, see fshud.cpp) is at window-Y =
+					// texH*HUD_CENTER_Y_FRAC, i.e. BELOW the texture's true
+					// geometric middle (texH/2) since HUD_CENTER_Y_FRAC (2/3) >
+					// 1/2. The quad built below is centred on that true middle,
+					// which is also exactly where the collimated reticle sits
+					// (FsVrDrawReticle, drawn on the fixed boresight ray below) --
+					// so before this offset, the HUD's own content read as
+					// sitting BELOW the gunsight (the reported bug: "everything
+					// except the gunsight sits too low").
+					//   A point drawn at window-Y=Yc is always
+					//   halfH*(1-2*Yc/texH) above whatever the quad's CURRENT
+					//   centre is (window-Y=0 -> +halfH, the "up" edge;
+					//   window-Y=texH -> -halfH, the "down" edge -- see
+					//   YsGLSLRenderHudQuad's BL/BR/TR/TL<->(0,0)/(1,0)/(1,1)/
+					//   (0,1) UV mapping, ysglslhudquadrenderer.c). For
+					//   Yc=texH*HUD_CENTER_Y_FRAC that is
+					//   halfH*(1-2*HUD_CENTER_Y_FRAC) = -halfH/3, i.e. one third
+					//   of a half-height BELOW the quad's own centre.
+					//   Shifting the quad's centre UP by halfH/3 moves that exact
+					//   point back onto the (fixed, unmoved) boresight ray:
+					//   NEW_CENTER = OLD_CENTER + up*halfH*(2*HUD_CENTER_Y_FRAC-1)
+					//              = OLD_CENTER + up*halfH/3.
+					// (Also mirrored in SimDrawVrHud's MISSILE!/STALL warning
+					// placement below -- both must use the SAME
+					// HUD_CENTER_Y_FRAC so the warnings never overlap the
+					// reticle.)
+					const double HUD_CENTER_Y_FRAC=2.0/3.0;
+					const double centerOffsetUp=halfH*(2.0*HUD_CENTER_Y_FRAC-1.0); // = halfH/3.
+					const YsVec3 center=mainWindowActualViewMode.viewPoint+fwd*dist+up*centerOffsetUp;
+					const YsVec3 bl=center-right*halfW-up*halfH;
+					const YsVec3 br=center+right*halfW-up*halfH;
+					const YsVec3 tr=center+right*halfW+up*halfH;
+					const YsVec3 tl=center-right*halfW+up*halfH;
+					const float corner[12]=
 					{
-						(float)hL0.x(),(float)hL0.y(),(float)hL0.z(), (float)hL1.x(),(float)hL1.y(),(float)hL1.z(),
-						(float)hR0.x(),(float)hR0.y(),(float)hR0.z(), (float)hR1.x(),(float)hR1.y(),(float)hR1.z(),
-						(float)vB0.x(),(float)vB0.y(),(float)vB0.z(), (float)vB1.x(),(float)vB1.y(),(float)vB1.z(),
-						(float)vT0.x(),(float)vT0.y(),(float)vT0.z(), (float)vT1.x(),(float)vT1.y(),(float)vT1.z()
+						(float)bl.x(),(float)bl.y(),(float)bl.z(),
+						(float)br.x(),(float)br.y(),(float)br.z(),
+						(float)tr.x(),(float)tr.y(),(float)tr.z(),
+						(float)tl.x(),(float)tl.y(),(float)tl.z()
 					};
-					// HUD-green, matching the flat HUD symbology exactly
-					// (FsHeadUpDisplay ctor: hudCol=RGB(100,255,100)).
-					FsVrDrawReticle(reticleVtx,hud->hudCol);
+					FsVrDrawHudQuad(corner);
+					FsVrPerfAccumulate(3,FsVrPerfNow()-hudT0);
+
+					const double reticleT0=FsVrPerfNow();
+					// Collimated gunsight reticle: the gun crosshair is no longer
+					// baked into the flat HUD glass for VR (SimDrawVrHud passes
+					// drawCrossHair=NO).  Draw it here instead as real world-space
+					// 3D line geometry FAR (2000 m) along the boresight, rendered
+					// through each eye's own stereo projection in the scene FBO --
+					// so stereo parallax makes it read as collimated at optical
+					// infinity and head translation off the boresight no longer
+					// swims the aim point the way the finite-distance glass does.
+					// Gated identically to the crosshair it replaces: only when the
+					// player flies a live HUD-equipped plane (same CheckHUDVisible
+					// as SimDrawVrHud), and only while the reticle is enabled
+					// (hudData[6]; ?vrreticle=0 falls back to the baked crosshair).
+					const FsAirplane *reticlePlane=GetPlayerAirplane();
+					if(0.0f!=hudData[6] &&
+					   NULL!=reticlePlane &&
+					   YSTRUE==reticlePlane->IsAlive() &&
+					   YSTRUE==reticlePlane->Prop().CheckHUDVisible())
+					{
+						// D far enough that a ~64 mm head translation shifts the
+						// apparent aim point by an unnoticeable angle; halfSize sized
+						// for a constant apparent width of ~0.6 deg total
+						// (halfSize=D*tan(0.3deg)).  fwd/up/right are the pre-head-
+						// tracking cockpit camera basis (same basis the HUD glass
+						// quad above is built from) -- in cockpit view with neutral
+						// head look-around this equals the airframe boresight.
+						const double D=2000.0;
+						const double halfSize=D*tan(YsDegToRad(0.3)); // ~10.5 m.
+						// Match FsHeadUpDisplay::DrawCrossHair's proportions: the
+						// vertical arms are 2/3 of the horizontal arms (lng=lat*2/3),
+						// and the center blank is ~4 px against a lat=hudWid/20 arm
+						// on the 768x432 HUD glass (hudWid=hei*8/9=384 -> 4/19.2).
+						const double vHalf=halfSize*2.0/3.0;
+						const double gap=halfSize*(4.0/(384.0/20.0));
+						const YsVec3 c=mainWindowActualViewMode.viewPoint+fwd*D;
+						const YsVec3 hL0=c-right*halfSize,hL1=c-right*gap;
+						const YsVec3 hR0=c+right*gap,     hR1=c+right*halfSize;
+						const YsVec3 vB0=c-up*vHalf,      vB1=c-up*gap;
+						const YsVec3 vT0=c+up*gap,        vT1=c+up*vHalf;
+						const float reticleVtx[24]=
+						{
+							(float)hL0.x(),(float)hL0.y(),(float)hL0.z(), (float)hL1.x(),(float)hL1.y(),(float)hL1.z(),
+							(float)hR0.x(),(float)hR0.y(),(float)hR0.z(), (float)hR1.x(),(float)hR1.y(),(float)hR1.z(),
+							(float)vB0.x(),(float)vB0.y(),(float)vB0.z(), (float)vB1.x(),(float)vB1.y(),(float)vB1.z(),
+							(float)vT0.x(),(float)vT0.y(),(float)vT0.z(), (float)vT1.x(),(float)vT1.y(),(float)vT1.z()
+						};
+						// HUD-green, matching the flat HUD symbology exactly
+						// (FsHeadUpDisplay ctor: hudCol=RGB(100,255,100)).
+						FsVrDrawReticle(reticleVtx,hud->hudCol);
+					}
+					FsVrPerfAccumulate(5,FsVrPerfNow()-reticleT0);
 				}
-				FsVrPerfAccumulate(5,FsVrPerfNow()-reticleT0);
 			}
 		}
 
@@ -6729,6 +6768,20 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// This does mean the ~3 cm eye-vs-viewer offset is not corrected
 		// for -- an imperceptible approximation for a hand-held prop.
 		//
+		// Grip-space pre-rotation: WebXR's controller "grip" space is
+		// defined so +Y points roughly back toward the user's face and +Z
+		// points roughly out along the user's forearm when the controller is
+		// held naturally (the ergonomic grip orientation, not a world-space
+		// convention) -- so feeding the model's OWN local +Z/+Y straight
+		// into that frame (fwdLocal=(0,0,-1), upLocal=(0,1,0), as if grip
+		// space were a plain "look-forward" camera frame) laid the
+		// stick/throttle console down on its BACK, tipped ~90deg toward the
+		// viewer (the reported field bug). Swapping the local basis to
+		// fwdLocal=(0,-1,0), upLocal=(0,0,-1) is a -90deg pre-rotation about
+		// the grip's local X axis: it stands the console upright, base
+		// toward the hand and rod/lever rising away from the viewer, before
+		// handing off to the SAME viewer-space rotation above.
+		//
 		// Grabbed gating reads FsVrControlDataPointer directly (the SAME
 		// block/threshold FsFlightControl::ApplyVrControlOverride already
 		// uses for stick/throttle deflection), so the prop drawn here can
@@ -6750,8 +6803,8 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			if(0.5f<handCtlData[0]) // Right hand: virtual stick grabbed.
 			{
 				const YsVec3 pos(handPose[0],handPose[1],-handPose[2]);
-				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,-1.0),handPose[3],handPose[4],handPose[5],handPose[6]);
-				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0, 0.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,-1.0, 0.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0, 0.0,-1.0),handPose[3],handPose[4],handPose[5],handPose[6]);
 				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
 				const YsVec3 up (upV.x(), upV.y(), -upV.z());
 				YsAtt3 att;
@@ -6765,8 +6818,8 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			if(0.5f<handCtlData[4]) // Left hand: virtual throttle grabbed.
 			{
 				const YsVec3 pos(handPose[8],handPose[9],-handPose[10]);
-				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,-1.0),handPose[11],handPose[12],handPose[13],handPose[14]);
-				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0, 0.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,-1.0, 0.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0, 0.0,-1.0),handPose[11],handPose[12],handPose[13],handPose[14]);
 				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
 				const YsVec3 up (upV.x(), upV.y(), -upV.z());
 				YsAtt3 att;
@@ -6835,9 +6888,25 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				// Full-view coverage quad: huge and close (1 m) so it fills
 				// the whole eye frustum regardless of headset FOV (halfSize=
 				// 20x the distance is comfortably past any realistic FOV --
-				// tan(87deg)~19). Same fwd/up/right pre-head-tracking cockpit
-				// basis as the HUD glass/reticle above.
-				YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+				// tan(87deg)~19). HEAD-locked, not airframe-locked: built from
+				// eyeViewMode (the actual head-tracked eye-0 pose computed
+				// near the top of this multiview branch, the same pose
+				// SimDrawScreen renders the world from) rather than
+				// mainWindowActualViewMode (the pre-head-tracking cockpit
+				// basis the HUD glass/reticle above intentionally use, since
+				// those ARE meant to be fixed instrument-panel furniture the
+				// pilot can look away from). A G-induced blackout/redout is a
+				// PHYSIOLOGICAL effect -- it follows the pilot's EYES, not the
+				// airframe -- so the tint must cover wherever the pilot is
+				// actually looking, not just where the nose happens to point.
+				// With the old airframe-anchored basis, turning the head only
+				// ~90deg off the boresight walked the quad's edge past the
+				// eye frustum entirely (halfSize=20x*D=20m at only D=1m ahead
+				// subtends ~87deg either side of the AIRFRAME axis, not the
+				// gaze axis), letting the pilot "look around" a supposedly
+				// whole-vision blackout -- exactly the Quest 3S field report
+				// this fixes.
+				YsMatrix4x4 camToWorld=eyeViewMode.viewMat;
 				if(YSOK==camToWorld.Invert())
 				{
 					YsVec3 fwd,up,right;
@@ -6847,7 +6916,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 
 					const double D=1.0;
 					const double halfSize=D*20.0;
-					const YsVec3 c=mainWindowActualViewMode.viewPoint+fwd*D;
+					const YsVec3 c=eyeViewMode.viewPoint+fwd*D;
 					const YsVec3 tbl=c-right*halfSize-up*halfSize;
 					const YsVec3 tbr=c+right*halfSize-up*halfSize;
 					const YsVec3 ttr=c+right*halfSize+up*halfSize;
@@ -7333,8 +7402,13 @@ void FsSimulation::SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationS
 	   YSTRUE==playerPlane->IsAlive() &&
 	   YSTRUE==playerPlane->Prop().CheckHUDVisible())
 	{
-		// In VR the HUD glass is always presented while the player flies a
-		// HUD-equipped plane, independent of the exterior/cockpit view mode.
+		// This function itself only ever runs while the player flies a
+		// HUD-equipped plane (checked again just below) AND the caller
+		// (SimDrawAllScreen's multiview branch) is in FSCOCKPITVIEW -- calling
+		// this from an external view was the bug: a chase-cam/tower/fixed-
+		// point pilot has no cockpit-panel glass to read symbology off of, so
+		// the HUD (and the collimated reticle/quad it is composited onto) is
+		// now gated to cockpit view only at the call site.
 		YSBOOL autoPilot=(NULL!=playerPlane->GetAutopilot() ? YSTRUE : YSFALSE);
 		// Suppress the gun crosshair in the baked flat HUD texture when the
 		// collimated world-space reticle is enabled (hudData[6], default on;

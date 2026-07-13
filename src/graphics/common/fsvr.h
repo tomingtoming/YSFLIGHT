@@ -252,7 +252,23 @@ extern "C"
 	                     GetNumWeapon(woc), plus GetNumPilotControlledTurretBullet()
 	                     for FSWEAPON_GUN -- the same computation the flat
 	                     HUD's own ammo readout (DrawAmmo) uses for the gun)
-	      [6..7] reserved (0) */
+	      [6] viewCycle (0..6 as float; where FsSimulation::mainWindowViewmode
+	                     currently sits along the desktop F2/FSBTF_
+	                     OUTSIDEPLAYERVIEW external-view chain -- see
+	                     FsSimulation::ViewingControl's FSBTF_
+	                     OUTSIDEPLAYERVIEW case: 0=FSCOCKPITVIEW,
+	                     1=FSOUTSIDEPLAYERPLANE, 2=FSFIXEDPOINTPLAYERPLANE,
+	                     3=FSVARIABLEPOINTPLAYERPLANE,
+	                     4=FSFROMTOPOFPLAYERPLANE, 5=FSPLAYERPLANEFROMSIDE,
+	                     6=anything else (additional-airplane/another-
+	                     airplane/tower/carrier/...). Lets the web layer's
+	                     left-Y view-cycle tap (fswebxr.cpp) decide whether
+	                     its next tap should dispatch F2 (advance the chain,
+	                     or enter it fresh from cockpit/other) or F1 (the
+	                     chain's last stop, PLAYERPLANEFROMSIDE==5, wrapping
+	                     back to cockpit) without duplicating
+	                     ViewingControl's own cycle order.
+	      [7] reserved (0) */
 	float *FsVrAircraftStateDataPointer(void);
 
 	/*! Phase-breakdown perf block (16 floats): an engine-side wall-clock EMA
