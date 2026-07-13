@@ -99,6 +99,16 @@ void FsVrBeginGuiRender(void);
 void FsVrEndGuiRender(void);
 void FsVrDrawGuiQuad(const float corner[12]);
 
+// VR single-pass-stereo G-load blackout(dark)/redout(red) full-field tint
+// (see fsopengl2.0.cpp).  Draws a huge, close, camera-facing solid-colour
+// quad (corner = 4 x vec3, BL,BR,TR,TL, built by the caller from the same
+// fwd/up/right cockpit basis the HUD quad/reticle use) through each eye's
+// own cached stereo projection, covering the ENTIRE eye frustum regardless
+// of headset FOV -- drawn AFTER the HUD quad/reticle so it darkens/reddens
+// everything, matching the physiological effect. alpha<=0 is an early-out
+// (no GPU cost, no state changes) when there is no G-load effect active.
+void FsVrDrawFullScreenTint(const float corner[12],float r,float g,float b,float alpha);
+
 void FsBeginDrawShadow(void);  // Set polygon offset -1,-1 and enable.
 void FsEndDrawShadow(void);    // Disable polygon offset.
 

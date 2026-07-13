@@ -208,6 +208,22 @@ void FsVrSetGuiMenu(const char *utf8,int len)
 	}
 }
 
+static float fsVrBlackoutOverride[5]={0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrBlackoutOverridePointer(void)
+{
+	return fsVrBlackoutOverride;
+}
+
+extern "C" void FsVrSetBlackoutOverride(int active,float r,float g,float b,float alpha)
+{
+	fsVrBlackoutOverride[0]=(0!=active ? 1.0f : 0.0f);
+	fsVrBlackoutOverride[1]=r;
+	fsVrBlackoutOverride[2]=g;
+	fsVrBlackoutOverride[3]=b;
+	fsVrBlackoutOverride[4]=alpha;
+}
+
 void FsVrMarkSimDrawn(void)
 {
 	if(fsVrSimDrawnFrame<0x40000000)

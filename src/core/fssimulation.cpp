@@ -19,6 +19,7 @@
 #include "fsinstpanel.h"
 #include "platform/common/fswindow.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsblackout.h"
 #include "graphics/common/fsvr.h"
 
 #include "fspluginmgr.h"
@@ -6689,6 +6690,93 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				}
 				FsVrPerfAccumulate(5,FsVrPerfNow()-reticleT0);
 			}
+		}
+
+		// G-load blackout(dark)/redout(red) full-field tint: flat play draws
+		// this via SimDrawBlackout, called from SimDrawScreen only
+		// `if(0==FsVrIsActive())` -- entirely skipped in VR, so high-G
+		// manoeuvres had no visual cue at all in a headset. Draw the SAME
+		// effect (same G-thresholds, same colour, same shared intensity
+		// computation -- FsComputeBlackoutTint, factored out of
+		// FsMakeBlackOutPolygon so flat and VR can never drift on WHEN it
+		// kicks in or what colour it is) as a single flat full-view tint
+		// quad instead of the flat path's radial screen-space vignette (VR
+		// has no one "screen centre" to radiate from -- the visual field is
+		// not screen-bounded). Drawn AFTER the HUD glass/reticle above so it
+		// covers EVERYTHING, matching the physiological effect (a G-induced
+		// blackout dims the pilot's whole vision, HUD included).
+		{
+			const double tintT0=FsVrPerfNow();
+			float tintR=0.0f,tintG=0.0f,tintB=0.0f,tintAlpha=0.0f;
+			YSBOOL tintActive=YSFALSE;
+
+			const float *blackoutOverride=FsVrBlackoutOverridePointer();
+			if(0.0f!=blackoutOverride[0])
+			{
+				// TEST-ONLY override (vr.pokeBlackout in fswebxr.cpp): lets a
+				// headless test exercise the tint without a real high-G
+				// manoeuvre. Skips the gating below entirely -- the override
+				// is the test's explicit intent.
+				tintR=blackoutOverride[1];
+				tintG=blackoutOverride[2];
+				tintB=blackoutOverride[3];
+				tintAlpha=blackoutOverride[4];
+				tintActive=(0.0f<tintAlpha ? YSTRUE : YSFALSE);
+			}
+			else
+			{
+				const FsAirplane *tintPlane=GetPlayerAirplane();
+				if(cfgPtr->blackOut==YSTRUE &&
+				   mainWindowActualViewMode.actualViewMode==FSCOCKPITVIEW &&
+				   NULL!=tintPlane &&
+				   tintPlane->isPlayingRecord!=YSTRUE &&
+				   tintPlane->IsAlive()==YSTRUE)
+				{
+					double r,g,b,alpha;
+					if(YSTRUE==FsComputeBlackoutTint(tintPlane->Prop().GetG(),r,g,b,alpha))
+					{
+						tintR=(float)r;
+						tintG=(float)g;
+						tintB=(float)b;
+						tintAlpha=(float)alpha;
+						tintActive=YSTRUE;
+					}
+				}
+			}
+
+			if(YSTRUE==tintActive && 0.0f<tintAlpha)
+			{
+				// Full-view coverage quad: huge and close (1 m) so it fills
+				// the whole eye frustum regardless of headset FOV (halfSize=
+				// 20x the distance is comfortably past any realistic FOV --
+				// tan(87deg)~19). Same fwd/up/right pre-head-tracking cockpit
+				// basis as the HUD glass/reticle above.
+				YsMatrix4x4 camToWorld=mainWindowActualViewMode.viewMat;
+				if(YSOK==camToWorld.Invert())
+				{
+					YsVec3 fwd,up,right;
+					camToWorld.Mul(fwd,YsZVec(),0.0);
+					camToWorld.Mul(up,YsYVec(),0.0);
+					camToWorld.Mul(right,YsXVec(),0.0);
+
+					const double D=1.0;
+					const double halfSize=D*20.0;
+					const YsVec3 c=mainWindowActualViewMode.viewPoint+fwd*D;
+					const YsVec3 tbl=c-right*halfSize-up*halfSize;
+					const YsVec3 tbr=c+right*halfSize-up*halfSize;
+					const YsVec3 ttr=c+right*halfSize+up*halfSize;
+					const YsVec3 ttl=c-right*halfSize+up*halfSize;
+					const float tintCorner[12]=
+					{
+						(float)tbl.x(),(float)tbl.y(),(float)tbl.z(),
+						(float)tbr.x(),(float)tbr.y(),(float)tbr.z(),
+						(float)ttr.x(),(float)ttr.y(),(float)ttr.z(),
+						(float)ttl.x(),(float)ttl.y(),(float)ttl.z()
+					};
+					FsVrDrawFullScreenTint(tintCorner,tintR,tintG,tintB,tintAlpha);
+				}
+			}
+			FsVrPerfAccumulate(7,FsVrPerfNow()-tintT0);
 		}
 
 		// VR in-flight GUI dialog: same off-screen-pass-then-composite shape as

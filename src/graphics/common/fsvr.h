@@ -248,6 +248,20 @@ extern "C"
 	    scene draw they are measuring, so there is no build flag to disable
 	    it. */
 	float *FsVrPerfDataPointer(void);
+
+	/*! TEST-ONLY: forces the VR G-load blackout/redout full-field tint
+	    (FsVrDrawFullScreenTint, called from FsSimulation::SimDrawAllScreen)
+	    to a fixed colour/alpha regardless of the player's actual G, so a
+	    headless test can exercise the tint without a real high-G manoeuvre.
+	    Block layout (5 floats):
+	      [0] active (0/1) -- while nonzero, SimDrawAllScreen uses [1..4]
+	          verbatim instead of computing G-based blackout/redout.
+	      [1..3] r,g,b (0..1 each)
+	      [4] alpha (0..1)
+	    See FsVrSetBlackoutOverride (the writer) and
+	    FsVrBlackoutOverridePointer (the reader, read by SimDrawAllScreen). */
+	float *FsVrBlackoutOverridePointer(void);
+	void FsVrSetBlackoutOverride(int active,float r,float g,float b,float alpha);
 }
 
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:
