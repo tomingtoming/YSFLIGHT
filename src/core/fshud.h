@@ -23,7 +23,12 @@ public:
 	void SetArea(long x1,long y1,long dx,long dy);
 	void SetAreaByCenter(long cx,long cy,long dx,long dy);
 
-	void Draw(YSBOOL autoPilot,const class FsCockpitIndicationSet &cockpitIndicationSet);
+	// drawCrossHair defaults to YSTRUE (the flat 2D play-mode HUD).  The VR
+	// combiner-glass path (SimDrawVrHud) passes YSFALSE so the gun crosshair is
+	// NOT baked into the shared flat HUD texture: in VR it is drawn instead as a
+	// collimated world-space reticle in the per-eye stereo scene pass (see
+	// FsVrDrawReticle / SimDrawAllScreen).
+	void Draw(YSBOOL autoPilot,const class FsCockpitIndicationSet &cockpitIndicationSet,YSBOOL drawCrossHair=YSTRUE);
 	void DrawCrossHair(void);
 	void DrawHeading(const YsAtt3 &hdg,YSBOOL showHdgBug,const double &hdgBug,YSBOOL selected);
 	void DrawThrottle(int nEng,const double thr[],const YSBOOL ab[]);
