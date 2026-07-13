@@ -563,7 +563,28 @@ void FsBeginRenderShadowMap(const YsMatrix4x4 &projTfm,const YsMatrix4x4 &viewTf
 	GLfloat viewMatLH[16];
 	viewTfmLH.GetOpenGlCompatibleMatrix(viewMatLH);
 
-	YsGLSLSetShared3DRendererProjection(projMat);
+	if(0!=FsVrIsMultiview())
+	{
+		// Multiview compile mode: every shared renderer's 'projection'
+		// uniform is a two-view mat4[2] indexed by gl_ViewID_OVR, and the
+		// mono setter only writes view 0 (leaving view 1 holding the last
+		// scene pass's eye-1 matrix -- garbage for a light-space pass).  A
+		// shadow map is light-space and view-INdependent, so both views get
+		// the SAME projection: the two layers of the multiview shadow FBO
+		// (see FsVrBindShadowMapMultiviewFbo above) render identically, and
+		// layer 0 is what gets blitted out for sampling.
+		GLfloat projStereo[32];
+		for(int i=0; i<16; ++i)
+		{
+			projStereo[i]=projMat[i];
+			projStereo[16+i]=projMat[i];
+		}
+		YsGLSLSetShared3DRendererProjectionStereo(projStereo);
+	}
+	else
+	{
+		YsGLSLSetShared3DRendererProjection(projMat);
+	}
 	YsGLSLSetShared3DRendererModelView(viewMatLH);
 
 	{
@@ -663,6 +684,68 @@ void FsDisableShadowMap(int samplerIdent,int shadowMapIdent)
 
 	SwitchTexture(samplerIdent);
 	glBindTexture(GL_TEXTURE_2D,0);
+}
+
+// ---- VR single-pass-stereo shadow-map render support ----------------------
+// See fsvr.h's FsVrShadowFboDataPointer doc comment for the full WHY: while
+// multiview is active every shared-renderer program carries
+// layout(num_views=2), and OVR_multiview2 refuses (INVALID_OPERATION,
+// verified on ANGLE) any draw into a framebuffer whose view count differs --
+// which the per-cascade single-layer depth FBOs do.  So the multiview shadow
+// pass draws into the shared two-layer depth-array FBO the web layer
+// publishes, then depth-blits its layer 0 into the cascade's ordinary 2D
+// depth texture, which the scene pass samples exactly like the flat path.
+// Emscripten/WebGL2-only machinery: the GLES2 headers this file builds
+// against have no glBlitFramebuffer, but the web build links with
+// -sMAX_WEBGL_VERSION=2 whose GL library provides it -- declare it (and the
+// two framebuffer-target enums) locally, guarded to the web build, the same
+// spirit as ystexturemanager_gl.cpp's GL_DEPTH_COMPONENT24 fallback.  The
+// desktop builds compile these to no-ops: multiview never engages there
+// (FsVrIsMultiview is only raised by the WebXR layer).
+#ifdef __EMSCRIPTEN__
+#ifndef GL_READ_FRAMEBUFFER
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#endif
+extern "C" void glBlitFramebuffer(
+    GLint srcX0,GLint srcY0,GLint srcX1,GLint srcY1,
+    GLint dstX0,GLint dstY0,GLint dstX1,GLint dstY1,
+    GLbitfield mask,GLenum filter);
+#endif
+
+int FsVrShadowMapMultiviewReady(int texWid,int texHei)
+{
+	const float *shadowFbo=FsVrShadowFboDataPointer();
+	return (0.0f!=shadowFbo[0] &&
+	        (float)texWid==shadowFbo[3] &&
+	        (float)texHei==shadowFbo[4] ? 1 : 0);
+}
+
+void FsVrBindShadowMapMultiviewFbo(void)
+{
+	const float *shadowFbo=FsVrShadowFboDataPointer();
+	glBindTexture(GL_TEXTURE_2D,0); // Same MacOSX/feedback discipline as YsTextureManager::Unit::BindFrameBuffer.
+	glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)shadowFbo[1]);
+}
+
+void FsVrBlitShadowMapFromMultiview(int texWid,int texHei)
+{
+#ifdef __EMSCRIPTEN__
+	// Caller contract: the cascade's own single-layer depth FBO is currently
+	// bound as GL_FRAMEBUFFER (i.e. both READ and DRAW) -- re-point only READ
+	// at the layer-0 view of the multiview depth array and blit.  Equal
+	// rectangles + NEAREST: both are hard GLES3 requirements for a
+	// DEPTH_BUFFER_BIT blit (and the formats match by construction --
+	// DEPTH_COMPONENT24 on both sides, see setupShadowFbo in fswebxr.cpp and
+	// ystexturemanager_gl.cpp's MakeActualTexture).  No restore needed: the
+	// caller's very next call is FsEndRenderShadowMap, which rebinds
+	// GL_FRAMEBUFFER (both targets) anyway.
+	const float *shadowFbo=FsVrShadowFboDataPointer();
+	glBindFramebuffer(GL_READ_FRAMEBUFFER,(GLuint)shadowFbo[2]);
+	glBlitFramebuffer(0,0,texWid,texHei,0,0,texWid,texHei,GL_DEPTH_BUFFER_BIT,GL_NEAREST);
+#else
+	(void)texWid;
+	(void)texHei;
+#endif
 }
 
 

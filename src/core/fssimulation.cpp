@@ -6753,34 +6753,38 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// ApplyVrControlOverride feeds from this same VR session), giving a
 		// stick/throttle that visibly moves as the pilot's wrist does.
 		//
-		// Grip pose arrives from the WebXR layer (fswebxr.cpp) in VIEWER
-		// space (fsvr.h's FsVrHandPoseDataPointer) -- relative to wherever
-		// the pilot's head currently is, in the browser's own convention (x
-		// right, y up, -z forward) -- which needs only the WebXR-to-engine
-		// handedness flip (negate z) to become exactly the frame
-		// FsVisualDnm::Draw(pos,att) already expects: "the viewpoint is at
-		// the origin looking straight ahead" (see SimDrawJoystick's memo
-		// above and DrawJoystick's own doc comment in fscontrol.cpp) -- the
-		// SAME per-eye camera-space frame a viewer-space grip pose is
+		// The console pose arrives from the WebXR layer (fswebxr.cpp) in
+		// VIEWER space (fsvr.h's FsVrHandPoseDataPointer) -- relative to
+		// wherever the pilot's head currently is, in the browser's own
+		// convention (x right, y up, -z forward) -- which needs only the
+		// WebXR-to-engine handedness flip (negate z) to become exactly the
+		// frame FsVisualDnm::Draw(pos,att) already expects: "the viewpoint
+		// is at the origin looking straight ahead" (see SimDrawJoystick's
+		// memo above and DrawJoystick's own doc comment in fscontrol.cpp) --
+		// the SAME per-eye camera-space frame a viewer-space pose is
 		// already given in, up to that flip, so no world-space
 		// reconstruction (camToWorld) is needed here at all, unlike the HUD
 		// glass/reticle/tint above (which draw raw world-space vertices).
 		// This does mean the ~3 cm eye-vs-viewer offset is not corrected
 		// for -- an imperceptible approximation for a hand-held prop.
 		//
-		// Grip-space pre-rotation: WebXR's controller "grip" space is
-		// defined so +Y points roughly back toward the user's face and +Z
-		// points roughly out along the user's forearm when the controller is
-		// held naturally (the ergonomic grip orientation, not a world-space
-		// convention) -- so feeding the model's OWN local +Z/+Y straight
-		// into that frame (fwdLocal=(0,0,-1), upLocal=(0,1,0), as if grip
-		// space were a plain "look-forward" camera frame) laid the
-		// stick/throttle console down on its BACK, tipped ~90deg toward the
-		// viewer (the reported field bug). Swapping the local basis to
-		// fwdLocal=(0,-1,0), upLocal=(0,0,-1) is a -90deg pre-rotation about
-		// the grip's local X axis: it stands the console upright, base
-		// toward the hand and rod/lever rising away from the viewer, before
-		// handing off to the SAME viewer-space rotation above.
+		// NOTE the pose is an ANCHOR, not the live grip: the web layer
+		// freezes the console at each grab's start point with a synthetic
+		// upright, facing-the-pilot orientation (updateHandPropAnchor /
+		// handPropAnchorQuat in fswebxr.cpp -- streaming the live grip made
+		// the whole base plate follow every hand wobble, the round-2 device
+		// report), so the console stands still like real cockpit furniture
+		// while the rod/lever below articulates from the live controls.
+		//
+		// Grip-space basis mapping: fwdLocal=(0,-1,0), upLocal=(0,0,-1).
+		// Historically this was a -90deg-about-X pre-rotation of the raw
+		// WebXR grip frame (whose +Y points back toward the user's face in
+		// a natural hold -- feeding the model's own +Z/+Y straight in laid
+		// the console flat, tipped toward the viewer, the round-1 device
+		// bug).  The web layer's synthetic anchor orientation is now BUILT
+		// AGAINST this exact mapping (see handPropAnchorQuat's doc comment:
+		// it solves q*(0,-1,0)=horizontal-away and q*(0,0,-1)=up), so the
+		// two sides form one contract: change one, change both.
 		//
 		// Grabbed gating reads FsVrControlDataPointer directly (the SAME
 		// block/threshold FsFlightControl::ApplyVrControlOverride already
@@ -7163,26 +7167,65 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-4\n");
 #endif
 
-	// Shadow maps are extra full-scene passes into off-screen buffers.  The
-	// stereo path is CPU/draw-call bound on a standalone headset (lowering the
-	// framebuffer resolution did not raise the frame rate), so drop shadows
-	// entirely in VR -- barely visible in flight, and each cascade was another
-	// scene traversal.  Disable sampling too, so the scene does not read the
-	// stale shadow maps left bound by the last 2D frame.
-	if(0!=FsVrIsActive())
+	// Shadow maps in VR: HISTORY, because this flag has flipped twice on perf
+	// grounds.  d1c414e first shared the light-space (view-independent) maps
+	// across the two per-eye passes; 268e0a9 then dropped them entirely in VR
+	// when the whole stereo path measured CPU/draw-call bound at ~44 ms/frame
+	// on a Quest 3S (each cascade is another full scene traversal, and
+	// lowering the framebuffer resolution had NOT raised the frame rate).
+	// That reasoning is REPEALED: after the WebGL getParameter state-shadow
+	// and 72 Hz session fixes the same path runs ~7 ms against a 13.9 ms
+	// budget, so the cascade passes are affordable again and the aircraft
+	// shadow is back by user request.  (The single z-band collapse from
+	// 268e0a9 stays -- only the shadow half is reverted.)  Being light-space,
+	// ONE shadow-map render still serves both eyes: in the multiview path the
+	// maps are rendered once per frame before the single scene pass, and in
+	// the legacy per-eye path only in the first eye's pass, exactly d1c414e's
+	// sharing.  The one case that must still DISABLE shadows is multiview
+	// WITHOUT a published multiview shadow render target (fsvr.h's
+	// FsVrShadowFboDataPointer): multiview-compiled programs cannot legally
+	// draw into the single-layer per-cascade FBOs (INVALID_OPERATION -- see
+	// SimDrawShadowMap below), and sampling must then be turned off so the
+	// scene does not read whatever stale maps the last 2D frame left bound.
+	if(YSTRUE==FsIsShadowMapAvailable())
 	{
-		if(YSTRUE==FsIsShadowMapAvailable())
+		const YSBOOL vrMultiview=(0!=FsVrIsActive() && 0!=FsVrIsMultiview() ? YSTRUE : YSFALSE);
+		YSBOOL haveMultiviewTarget=YSTRUE;
+		if(YSTRUE==vrMultiview)
 		{
+			auto &commonTexture=FsCommonTexture::GetCommonTexture();
+			auto texUnit=(0<commonTexture.GetMaxNumShadowMap() ? commonTexture.GetShadowMapTexture(0) : nullptr);
+			// Cascade textures may not exist yet on the first VR frame
+			// (ReadyShadowMap runs inside SimDrawShadowMap); not-yet-created
+			// cascades will be 2048x2048 (FsCommonTexture::ReadyShadowMap),
+			// so check the published target against that.
+			const int cascadeWid=(nullptr!=texUnit ? texUnit->GetWidth()  : 2048);
+			const int cascadeHei=(nullptr!=texUnit ? texUnit->GetHeight() : 2048);
+			if(0==FsVrShadowMapMultiviewReady(cascadeWid,cascadeHei))
+			{
+				haveMultiviewTarget=YSFALSE;
+			}
+		}
+
+		if(YSTRUE==vrMultiview && YSTRUE!=haveMultiviewTarget)
+		{
+			// Multiview without a published multiview shadow target: cannot
+			// legally render the cascades, so turn sampling off too.
 			auto &commonTexture=FsCommonTexture::GetCommonTexture();
 			for(int i=0; i<commonTexture.GetMaxNumShadowMap(); ++i)
 			{
 				FsDisableShadowMap(5+i,0+i);
 			}
 		}
-	}
-	else if(YSTRUE==FsIsShadowMapAvailable())
-	{
-		SimDrawShadowMap(actualViewMode);
+		else if(0==FsVrIsActive() || YSTRUE==vrMultiview || 0==FsGetActiveSplitWindow())
+		{
+			// Flat play, the multiview single pass (runs once per frame), or
+			// the legacy per-eye path's FIRST eye.
+			SimDrawShadowMap(actualViewMode);
+		}
+		// else: legacy per-eye second pass -- the light-space maps rendered
+		// in the first eye's pass are still bound and enabled; reuse them
+		// as-is (d1c414e's sharing), neither re-render nor disable.
 	}
 
 
@@ -7609,6 +7652,20 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 		auto &commonTexture=FsCommonTexture::GetCommonTexture();
 		commonTexture.ReadyShadowMap();
 
+		// VR single-pass stereo: every shared-renderer program carries
+		// layout(num_views=2) while multiview is active, and OVR_multiview2
+		// raises INVALID_OPERATION on any draw into a framebuffer whose view
+		// count differs -- which each cascade's own single-layer depth FBO
+		// does.  So render each cascade into the shared two-layer multiview
+		// depth-array FBO instead (both layers identical -- see
+		// FsBeginRenderShadowMap's stereo-projection branch), then depth-blit
+		// its layer 0 into the cascade's ordinary 2D depth texture, which the
+		// scene pass samples exactly like the flat path (FsEnableShadowMap
+		// below is unchanged).  The caller (SimDrawScreen) only reaches here
+		// in multiview when FsVrShadowMapMultiviewReady already said the
+		// published target matches the cascade size.
+		const YSBOOL vrMultiview=(0!=FsVrIsActive() && 0!=FsVrIsMultiview() ? YSTRUE : YSFALSE);
+
 		for(int i=0; i<commonTexture.GetMaxNumShadowMap(); ++i)
 		{
 			auto texUnit=commonTexture.GetShadowMapTexture(i);
@@ -7619,7 +7676,14 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 				auto texWid=texUnit->GetWidth();
 				auto texHei=texUnit->GetHeight();
 
-				texUnit->BindFrameBuffer();
+				if(YSTRUE==vrMultiview)
+				{
+					FsVrBindShadowMapMultiviewFbo();
+				}
+				else
+				{
+					texUnit->BindFrameBuffer();
+				}
 
 				FsBeginRenderShadowMap(projMat,viewMat,texWid,texHei);
 
@@ -7660,6 +7724,15 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 					}
 
 					gndSeeker->DrawShadow(viewMat,projMat,YsIdentity4x4());
+				}
+
+				if(YSTRUE==vrMultiview)
+				{
+					// Move the rendered depth into this cascade's own 2D
+					// texture: bind the cascade FBO (both READ+DRAW), then the
+					// blit helper re-points READ at the array's layer 0.
+					texUnit->BindFrameBuffer();
+					FsVrBlitShadowMapFromMultiview(texWid,texHei);
 				}
 
 				FsEndRenderShadowMap();

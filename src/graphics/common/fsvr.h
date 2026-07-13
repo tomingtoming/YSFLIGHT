@@ -46,24 +46,31 @@
 
 // Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
 //   A VR controller runtime (WebXR in ysflight-web) writes each grabbed
-//   hand's grip pose here every frame, in VIEWER space (the browser's own
-//   convention: x right, y up, -z forward, meters / unit quaternion) --
-//   i.e. relative to wherever the pilot's HEAD currently is, NOT the
-//   engine's world frame.  FsSimulation reads it (SimDrawAllScreen's
+//   hand's HOTAS-prop console pose here every frame, in VIEWER space (the
+//   browser's own convention: x right, y up, -z forward, meters / unit
+//   quaternion) -- i.e. relative to wherever the pilot's HEAD currently is,
+//   NOT the engine's world frame.  FsSimulation reads it (SimDrawAllScreen's
 //   multiview branch) to draw the engine's own stick/throttle DNM models
 //   (misc/stick.dnm, misc/throttle.dnm -- the exact same models/draw calls
 //   the calibration screen uses, see FsFlightControl::DrawJoystick/
-//   DrawThrottle in fscontrol.cpp) at the grip position, so the pilot sees
-//   the virtual HOTAS move with their wrist.  This works out cheaply
-//   because FsVisual::Draw's (pos,att) parameters are ALREADY defined
-//   relative to the current eye ("the viewpoint is at the origin looking
-//   straight ahead", see SimDrawJoystick's memo in fssimulation.cpp) --
-//   the exact same frame a viewer-space grip pose is already given in, up
-//   to the WebXR-vs-engine handedness flip (negate z) -- so no per-frame
-//   world-transform reconstruction is needed, just that one flip.
+//   DrawThrottle in fscontrol.cpp) at that pose, articulating from the LIVE
+//   control deflections so the pilot sees the rod/lever move with their
+//   wrist.  NOTE the pose is ANCHORED, not the live grip: the web layer
+//   freezes the console at the grab-start point with a synthetic upright
+//   facing-the-pilot orientation (fswebxr.cpp's updateHandPropAnchor --
+//   streaming the live grip made the whole base plate wobble with the hand,
+//   which read as broken on device) and only re-bases that frozen
+//   reference-space pose onto each frame's head pose before writing here.
+//   This works out cheaply because FsVisual::Draw's (pos,att) parameters
+//   are ALREADY defined relative to the current eye ("the viewpoint is at
+//   the origin looking straight ahead", see SimDrawJoystick's memo in
+//   fssimulation.cpp) -- the exact same frame a viewer-space pose is
+//   already given in, up to the WebXR-vs-engine handedness flip (negate z)
+//   -- so no per-frame world-transform reconstruction is needed in the
+//   engine, just that one flip.
 //   Right hand: indices [0..7].  Left hand: indices [8..15].
-//     [0..2]  grip position (x,y,z), viewer space
-//     [3..6]  grip orientation quaternion (x,y,z,w), viewer space
+//     [0..2]  console position (x,y,z), viewer space
+//     [3..6]  console orientation quaternion (x,y,z,w), viewer space
 //     [7]     grabbed (0/1; 1 iff the right/stick hand is CURRENTLY
 //             effective-grabbed -- physical squeeze OR sticky latch, the
 //             same condition that drives FsVrControlDataPointer[0]).
@@ -71,8 +78,8 @@
 //             (which is what the engine actually gates drawing on);
 //             written here too so a hand-pose-only consumer is
 //             self-contained.
-//     [8..10] grip position (x,y,z), viewer space, LEFT hand
-//     [11..14] grip orientation quaternion (x,y,z,w), viewer space, LEFT hand
+//     [8..10] console position (x,y,z), viewer space, LEFT hand
+//     [11..14] console orientation quaternion (x,y,z,w), viewer space, LEFT hand
 //     [15]    reserved, always 0 (the engine gates the left/throttle hand
 //             on FsVrControlDataPointer[4] instead -- see fsvr.h's control-
 //             data doc comment above)
@@ -113,6 +120,35 @@ extern "C"
 	    non-negative integers that round-trip exactly through float32 (same
 	    convention as the other fsvr shared blocks). */
 	float *FsVrHudDataPointer(void);
+
+	/*! VR multiview shadow-map render-target block (8 floats), written by the
+	    WebXR layer when single-pass-stereo mode engages (setupShadowFbo in
+	    fswebxr.cpp), consumed by the gl2.0 back-end's shadow-map path.
+	    WHY it exists: while multiview is active EVERY shared-renderer program
+	    is compiled with layout(num_views=2) (YsGLSLSetCompileNumViews /
+	    FsReinitializeOpenGL), and OVR_multiview2 raises INVALID_OPERATION on
+	    any draw whose framebuffer view count differs from the program's --
+	    verified empirically on ANGLE: a num_views=2 program cannot draw into
+	    the per-cascade single-layer 2048x2048 depth FBOs YsTextureManager
+	    owns.  So the multiview shadow pass renders each cascade into THIS
+	    shared two-layer depth-array FBO instead (both layers get the same
+	    light-space projection -- see FsBeginRenderShadowMap), then blits
+	    layer 0's depth into the cascade's ordinary 2D depth texture
+	    (FsVrBlitShadowMapFromMultiview), which the scene pass samples exactly
+	    like the flat path.  One shared array serves all cascades
+	    sequentially -- render, blit, repeat.
+	      [0] enable    (0/1, written by the web layer)
+	      [1] mvFbo     (GL framebuffer name: two-layer multiview FBO, depth-
+	                     only attachment, DEPTH_COMPONENT24 2048x2048x2)
+	      [2] readFbo   (GL framebuffer name: layer 0 of that same depth array
+	                     attached via framebufferTextureLayer -- the blit
+	                     source)
+	      [3] texWidth  (must equal the engine's shadow-map cascade size,
+	                     2048 -- see FsCommonTexture::ReadyShadowMap; the
+	                     depth blit requires equal rectangles)
+	      [4] texHeight
+	      [5..7] reserved (0) */
+	float *FsVrShadowFboDataPointer(void);
 
 	/*! Transient override, set only while the HUD (or GUI-dialog, see
 	    FsVrGuiDataPointer below) off-screen pass is running, so that the 2D
