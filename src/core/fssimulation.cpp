@@ -12339,6 +12339,15 @@ void FsSimulation::CheckContinueDraw(void) const
 		SimComputeVrGuiState();
 	}
 
+	// Keep the VR watchdog alive (FsVrConsumeSimDrawnFrames): SimDrawScreen
+	// above renders a real 3D frame, so this qualifies as a sim-drawn frame.
+	// Without this call the watchdog would end the XR session after ~1.5s of
+	// CHECKCONTINUE dialogs (100 frames at 72 Hz with no FsVrMarkSimDrawn).
+	if(0!=FsVrIsActive())
+	{
+		FsVrMarkSimDrawn();
+	}
+
 	SimDrawFlush(); // <- Swap buffers inside.
 
 }
