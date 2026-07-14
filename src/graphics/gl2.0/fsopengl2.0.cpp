@@ -329,9 +329,18 @@ void FsClearScreenAndZBuffer(const YsColor &clearColor)
 {
 	if(0!=FsVrIsActive())
 	{
-		// Per-eye clear.  The VR viewport is bottom-left origin already.
 		int x0,y0,wid,hei;
-		FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		if(0!=FsVrHudRenderTargetActive())
+		{
+			// Off-screen pass (menu, HUD, or GUI): clear the full off-screen texture.
+			FsVrGetHudRenderSize(&wid,&hei);
+			x0=0; y0=0;
+		}
+		else
+		{
+			// Per-eye clear for the main scene.
+			FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		}
 		glScissor(x0,y0,wid,hei);
 		glEnable(GL_SCISSOR_TEST);
 	}
@@ -1134,6 +1143,35 @@ void FsVrEndGuiRender(void)
 	// The web layer redirects a bind(0) to the active multiview scene FBO for
 	// the lifetime of the session, so this restores the scene target.
 	glBindFramebuffer(GL_FRAMEBUFFER,0);
+}
+
+// ---- VR main-menu off-screen pass ----------------------------------------
+// Same shape as HUD/GUI above, but driven by FsVrMenuDataPointer (the
+// main-menu state block).  The menu FBO is a plain mono RGBA 2D texture
+// (not a multiview texture-array), allocated by setupMenu in fswebxr.cpp
+// when the WebXR layers path is available.  FsVrSetHudRenderTarget /
+// FsSetWindowSizeOverride are reused as-is (same shared active/size pair
+// used for HUD and GUI -- see fsvr.h's doc comment on FsVrSetHudRenderTarget:
+// the three passes never run concurrently within a frame, so one set of
+// state variables is enough).
+void FsVrBeginMenuRender(void)
+{
+	const float *menuData=FsVrMenuDataPointer();
+	const GLuint menuFbo=(GLuint)menuData[1];
+	const int texW=(int)menuData[3];
+	const int texH=(int)menuData[4];
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,menuFbo);
+	FsVrSetMenuPassActive(1);
+}
+
+void FsVrEndMenuRender(void)
+{
+	FsVrSetMenuPassActive(0);
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
 }
 
 void FsVrDrawGuiQuad(const float corner[12])

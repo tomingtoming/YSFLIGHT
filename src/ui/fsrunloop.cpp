@@ -11,6 +11,7 @@
 #include <fsguifiledialog.h>
 
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 
 #include "fsconfig.h"
 #include "fsoption.h"
@@ -2548,6 +2549,20 @@ void FsRunLoop::DrawMenu(void) const
 		return;
 	}
 
+	const int vrActive=FsVrIsActive();
+	if(0!=vrActive)
+	{
+		const float *menuData=FsVrMenuDataPointer();
+		if(0.0f==menuData[0])
+		{
+			// FBO not ready yet -- keep the watchdog alive and skip the draw.
+			FsVrMarkSimDrawn();
+			return;
+		}
+		FsVrBeginMenuRender();
+	}
+
+	// ---- Drawing body (shared between VR and 2D path) ----
 	FsClearScreenAndZBuffer(YsGrayScale(0.25));
 	FsSet2DDrawing();
 	if((nullptr==mainCanvas || YSTRUE!=mainCanvas->ShowConsole()) &&
@@ -2566,7 +2581,7 @@ void FsRunLoop::DrawMenu(void) const
 	if(world->SimulationIsPrepared()!=YSTRUE)
 	{
 		if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-		   newFltMsgBmp.GetWidth()>0 && 
+		   newFltMsgBmp.GetWidth()>0 &&
 		   newFltMsgBmp.GetHeight()>0)
 		{
 			FsDrawBmp(newFltMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2577,7 +2592,7 @@ void FsRunLoop::DrawMenu(void) const
 		if(YSTRUE==world->PlayerPlaneIsReady() || YSTRUE==world->PlayerGroundIsReady())
 		{
 			if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-			   simFlyMsgBmp.GetWidth()>0 && 
+			   simFlyMsgBmp.GetWidth()>0 &&
 			   simFlyMsgBmp.GetHeight()>0)
 			{
 				FsDrawBmp(simFlyMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2586,7 +2601,7 @@ void FsRunLoop::DrawMenu(void) const
 		else
 		{
 			if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-			   simRepMsgBmp.GetWidth()>0 && 
+			   simRepMsgBmp.GetWidth()>0 &&
 			   simRepMsgBmp.GetHeight()>0)
 			{
 				FsDrawBmp(simRepMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2599,6 +2614,16 @@ void FsRunLoop::DrawMenu(void) const
 		mainCanvas->Show();
 		mainCanvas->SetNeedRedraw(YSFALSE);
 	}
+	// ---- End drawing body ----
+
+	if(0!=vrActive)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // signal web layer: menu was drawn this frame
+		return; // Do NOT call FsSwapBuffers in VR
+	}
+
 	FsSwapBuffers();
 }
 

@@ -189,6 +189,25 @@ extern "C" float *FsVrGuiDataPointer(void)
 	return fsVrGuiData;
 }
 
+static float fsVrMenuData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrMenuDataPointer(void)
+{
+	return fsVrMenuData;
+}
+
+static int fsVrMenuPassActive=0;
+
+extern "C" void FsVrSetMenuPassActive(int active)
+{
+	fsVrMenuPassActive=(0!=active ? 1 : 0);
+}
+
+extern "C" int FsVrIsMenuPassActive(void)
+{
+	return fsVrMenuPassActive;
+}
+
 #define FSVR_GUIMENU_CAP 4096
 
 static char fsVrGuiMenu[FSVR_GUIMENU_CAP];
