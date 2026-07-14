@@ -2555,8 +2555,14 @@ void FsRunLoop::DrawMenu(void) const
 		const float *menuData=FsVrMenuDataPointer();
 		if(0.0f==menuData[0])
 		{
-			// FBO not ready yet -- keep the watchdog alive and skip the draw.
-			FsVrMarkSimDrawn();
+			// Menu FBO was never allocated.  This only happens in environments
+			// that cannot create the menu quad at all (no WebXR layers /
+			// multiview support -- setupMenu is gated on vr.mvLayer and runs
+			// synchronously inside vr.enter() before FsVrIsActive goes up, so
+			// in the normal path this branch is unreachable).  Deliberately do
+			// NOT call FsVrMarkSimDrawn here: let the watchdog end the session
+			// after ~100 silent frames so the user falls back to the 2D page
+			// instead of being trapped in a live black-void session.
 			return;
 		}
 		FsVrBeginMenuRender();
