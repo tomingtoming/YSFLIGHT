@@ -2670,6 +2670,17 @@ YSBOOL FsRunLoop::NeedRedraw(void) const
 		switch(runModeStack.GetEnd().runMode)
 		{
 		case YSRUNMODE_MENU:
+			if(0!=FsVrIsActive())
+			{
+				// VR: the menu is presented on an XRQuadLayer whose swapchain
+				// needs a fresh frame every vsync, and DrawMenu's menuDrawn
+				// flag doubles as the quad's per-frame visibility signal (and
+				// feeds the session watchdog).  The 2D redraw throttle below
+				// would starve all three whenever the menu is idle -- the
+				// on-device symptom was the menu quad flickering in and out
+				// as ray movement (synthetic mouse) toggled NeedRedraw.
+				return YSTRUE;
+			}
 			if((nullptr!=mainCanvas && YSTRUE==mainCanvas->NeedRedraw()) ||
 			   YSTRUE==FsCheckWindowExposure() ||
 			   YSTRUE==needRedraw)
