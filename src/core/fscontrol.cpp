@@ -2648,6 +2648,18 @@ void FsCenterJoystick::RunOneStep(void)
 			}
 		}
 
+		// WebXR controllers are XRInputSource gamepads and are not exposed by
+		// the browser through the legacy joystick poll below.  The WebXR bridge
+		// therefore publishes either hand's primary trigger in the shared VR
+		// control block so the headset can truthfully follow the on-screen
+		// "PRESS ... TRIGGER TO GO" instruction.
+		if(0!=FsVrIsActive() && 0.5f<FsVrControlDataPointer()[7])
+		{
+			waitStart=time(NULL);
+			state=WAITING_FOR_RELEASE;
+			return;
+		}
+
 		for(int i=0; i<FsMaxNumJoystick; i++)
 		{
 			pJoy[i]=joy[i];
@@ -2695,6 +2707,10 @@ void FsCenterJoystick::RunOneStep(void)
 		{
 			c++;
 		}
+		if(0!=FsVrIsActive() && 0.5f<FsVrControlDataPointer()[7])
+		{
+			c++;
+		}
 		for(int i=0; i<FsMaxNumJoystick; i++)
 		{
 			FsPollJoystick(joy[i],i);
@@ -2724,6 +2740,7 @@ void FsCenterJoystick::RunOneStep(void)
 	{
 	}
 }
+
 
 void FsCenterJoystick::Draw(void) const
 {
@@ -2840,4 +2857,3 @@ void FsCenterJoystick::Draw(void) const
 	{
 	}
 }
-

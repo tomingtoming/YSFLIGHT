@@ -42,7 +42,12 @@
 //                              for the rest of the session -- tells the
 //                              reader that [5] is a real, live-supplied
 //                              throttle value, as opposed to never touched)
-//   [7..15] reserved, always 0
+//   [7]  confirmTriggerPressed (0 or 1; either tracked hand's primary XR
+//                               trigger is currently pressed). Used by the
+//                               pre-flight CENTER JOYSTICK confirmation,
+//                               whose normal joystick poll cannot see WebXR
+//                               XRInputSource gamepads.
+//   [8..15] reserved, always 0
 
 // Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
 //   A VR controller runtime (WebXR in ysflight-web) writes each grabbed

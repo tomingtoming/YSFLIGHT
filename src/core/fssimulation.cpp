@@ -124,6 +124,7 @@ void FsHasInFlightDialog::SetCurrentInFlightDialog(FsGuiInFlightDialog *dlg)
 	}
 }
 
+
 FsGuiInFlightDialog *FsHasInFlightDialog::GetCurrentInFlightDialog(void) const
 {
 	return currentInFlightDlg;
@@ -2857,6 +2858,14 @@ void FsSimulation::DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE si
 	case FSSIMSTATE_CENTERJOYSTICK:
 		SimClearVrGuiStateIfActive();
 		CenterJoystickDraw();
+		// This is a live, repeatedly redrawn pre-flight screen, not a stalled
+		// simulation.  Feed the WebXR presentation watchdog just like the
+		// running/check-continue paths; otherwise it ends the headset session
+		// after ~100 frames while the pilot is reading the prompt.
+		if(0!=FsVrIsActive())
+		{
+			FsVrMarkSimDrawn();
+		}
 		break;
 	case FSSIMSTATE_INITIALIZE:
 		SimClearVrGuiStateIfActive();
@@ -14973,4 +14982,3 @@ void FsSimulation::CloseChatDialog(void)
 		FsDisableIME();
 	}
 }
-
