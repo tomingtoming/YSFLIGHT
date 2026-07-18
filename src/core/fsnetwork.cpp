@@ -20,6 +20,7 @@
 #include "fspluginmgr.h"
 
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 #include "platform/common/fswindow.h"
 
 #ifdef _WIN32
@@ -7680,9 +7681,27 @@ static YSRESULT FsNetworkStandby
 		{
 			FsGuiDialogItem *itm;
 
+			// ysflight-web VR: render the chooser into the menu FBO so it
+			// shows on the menu quad (see FsSimulation::DrawInClientMode's
+			// doc comment -- the Draw side skips its own clear while a
+			// chooser is up, so this Run-side frame is what gets presented).
+			const int vrMenuPass=(0!=FsVrIsActive() && 0.0f!=FsVrMenuDataPointer()[0]) ? 1 : 0;
+			if(0!=vrMenuPass)
+			{
+				FsVrBeginMenuRender();
+			}
 			FsClearScreenAndZBuffer(YsGrayScale(0.25));
 			chooseAirplane.Show();
-			FsSwapBuffers();
+			if(0!=vrMenuPass)
+			{
+				FsVrEndMenuRender();
+				FsVrMarkSimDrawn();
+				FsVrMenuDataPointer()[5]=1.0f;
+			}
+			else
+			{
+				FsSwapBuffers();
+			}
 
 			chooseAirplane.SetMouseState(lb,mb,rb,mx,my);
 			chooseAirplane.KeyIn(ky,(YSBOOL)FsGetKeyState(FSKEY_SHIFT),(YSBOOL)FsGetKeyState(FSKEY_CTRL),(YSBOOL)FsGetKeyState(FSKEY_ALT));
@@ -7709,9 +7728,24 @@ static YSRESULT FsNetworkStandby
 		{
 			FsGuiDialogItem *itm;
 
+			// Same VR menu-FBO bracket as choosingMode 1 above.
+			const int vrMenuPass=(0!=FsVrIsActive() && 0.0f!=FsVrMenuDataPointer()[0]) ? 1 : 0;
+			if(0!=vrMenuPass)
+			{
+				FsVrBeginMenuRender();
+			}
 			FsClearScreenAndZBuffer(YsBlack());
 			chooseStartPosition.Show();
-			FsSwapBuffers();
+			if(0!=vrMenuPass)
+			{
+				FsVrEndMenuRender();
+				FsVrMarkSimDrawn();
+				FsVrMenuDataPointer()[5]=1.0f;
+			}
+			else
+			{
+				FsSwapBuffers();
+			}
 
 			chooseStartPosition.SetMouseState(lb,mb,rb,mx,my);
 			chooseStartPosition.KeyIn(ky,(YSBOOL)FsGetKeyState(FSKEY_SHIFT),(YSBOOL)FsGetKeyState(FSKEY_CTRL),(YSBOOL)FsGetKeyState(FSKEY_ALT));
@@ -10676,6 +10710,41 @@ printf("%s %d\n",__FUNCTION__,__LINE__);
 
 void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 {
+	// ysflight-web VR: every 2D phase of client mode (the logon console, the
+	// network-standby "terminal", the terminating prompt) renders into the VR
+	// menu FBO and is presented on the world-anchored menu quad, exactly like
+	// the main menu (FsRunLoop::DrawMenu).  Without this no draw path fed the
+	// presentation watchdog, so the session ended ~1.4s into the lobby (Quest
+	// field report).  The in-simulation branch (clientState!=0) keeps the
+	// normal 3D multiview path, which feeds the watchdog itself
+	// (SimDrawAllScreen).
+	const YSBOOL inSim=(FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0!=cliSta.cli.clientState) ? YSTRUE : YSFALSE;
+	const int vrMenuPass=(0!=FsVrIsActive() && YSTRUE!=inSim) ? 1 : 0;
+	if(0!=vrMenuPass)
+	{
+		if(0.0f==FsVrMenuDataPointer()[0])
+		{
+			// No menu FBO (layers-unsupported browser): stay silent and let
+			// the watchdog return the user to the 2D page -- the same
+			// deliberate non-feed as FsRunLoop::DrawMenu.
+			return;
+		}
+		// The aircraft/start-position choosers (choosingMode 1/2) render
+		// their frame from the RUN side (FsNetworkStandby's own VR menu
+		// bracket, earlier this same tick); re-clearing here would blank it.
+		// Just keep the watchdog fed and leave the frame alone.
+		if(FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState &&
+		   0==cliSta.cli.clientState &&
+		   0!=cliSta.cli.choosingMode && 10!=cliSta.cli.choosingMode)
+		{
+			FsVrMarkSimDrawn();
+			return;
+		}
+		FsVrBeginMenuRender();
+		// Defined background for the branches below that draw nothing
+		// (fsConsole.Show clears again on its own -- harmless).
+		FsClearScreenAndZBuffer(YsGrayScale(0.25));
+	}
 	switch(cliSta.runState)
 	{
 	case FsClientRunLoop::CLIENT_RUNSTATE_INITIALIZE1:
@@ -10687,7 +10756,14 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 		{
 			if(cliSta.cli.clientState==0)  // Network Standby
 			{
-				if(cliSta.cli.choosingMode==0 && (cliSta.cli.nextConsoleUpdateTime<0.0 || YSTRUE==cliSta.cliDlg->NeedRedraw()))
+				if(0!=vrMenuPass)
+				{
+					// The menu-quad swapchain needs a fresh frame every tick
+					// (see updateMenuLayer's 8-frame hide grace); the 0.5s
+					// console throttle below would blink the quad in and out.
+					fsConsole.Show();
+				}
+				else if(cliSta.cli.choosingMode==0 && (cliSta.cli.nextConsoleUpdateTime<0.0 || YSTRUE==cliSta.cliDlg->NeedRedraw()))
 				{
 					fsConsole.Show();
 					cliSta.cli.nextConsoleUpdateTime=0.5;
@@ -10710,6 +10786,12 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 
 	case FsClientRunLoop::CLIENT_RUNSTATE_TERMINATED:
 		break;
+	}
+	if(0!=vrMenuPass)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // menuDrawn: web layer shows the quad
 	}
 }
 
