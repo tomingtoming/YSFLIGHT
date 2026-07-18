@@ -435,6 +435,16 @@ public:
 
 	time_t waiting,waitStart;
 
+	// VR world anchor for the calibration diorama (see Draw's VR branch):
+	// captured lazily on the first VR-drawn WAITING_FOR_BUTTON frame after
+	// Initialize, it maps the diorama's fixed-camera frame onto wherever the
+	// pilot's head was (yaw + position only) at that moment, so the scene
+	// reads as a world-fixed object centered in front of them instead of
+	// following the head (2026-07 Quest feedback).  mutable because Draw is
+	// const and the capture is a pure presentation concern.
+	mutable YSBOOL vrAnchorCaptured;
+	mutable YsMatrix4x4 vrAnchor;
+
 	FsCenterJoystick();
 	~FsCenterJoystick();
 	void Initialize(FsFlightControl *ctl,const FsControlAssignment *ctlAssign,int nextAction);
