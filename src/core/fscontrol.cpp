@@ -831,6 +831,19 @@ void FsFlightControl::ApplyVrControlOverride(void)
 		ctlElevator=YsBound((double)ctlData[2],-1.0,1.0);
 		ctlRudder=YsBound((double)ctlData[3],-1.0,1.0);
 	}
+	else if(0.5f<ctlData[8]) // Stick was grabbed before: spring to neutral.
+	{
+		// See fsvr.h's [8] stickEverGrabbed doc comment: a released VR stick
+		// must read as CENTERED, every frame.  ctlAileron & co. are stateful
+		// members, so without this the last grabbed-frame deflection stays in
+		// force after release (the writer's release-edge zeros land on the
+		// same frame [0] flips to 0, so the grabbed branch never consumes
+		// them), and any later mouse-as-joystick change (e.g. the VR menu's
+		// synthetic ray-to-mouse events) would steer the plane too.
+		ctlAileron=0.0;
+		ctlElevator=0.0;
+		ctlRudder=0.0;
+	}
 
 	// Gated on throttleEverGrabbed (not throttleGrabbed): once the VR
 	// throttle has been touched at all, its latched value is authoritative

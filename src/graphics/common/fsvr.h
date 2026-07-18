@@ -47,7 +47,19 @@
 //                               pre-flight CENTER JOYSTICK confirmation,
 //                               whose normal joystick poll cannot see WebXR
 //                               XRInputSource gamepads.
-//   [8..15] reserved, always 0
+//   [8]  stickEverGrabbed     (0 or 1; once set to 1 by the writer, stays 1
+//                              for the rest of the session -- the stick
+//                              counterpart of [6].  While [0] is 0 and this
+//                              is 1, the reader CENTERS aileron/elevator/
+//                              rudder every frame, like a released
+//                              spring-loaded stick.  Without it, releasing
+//                              the grab left the last held deflection frozen
+//                              in FsFlightControl -- the release-edge zero
+//                              write and the [0]->0 flip land on the same
+//                              frame, so the zeros were never consumed --
+//                              and any stale mouse-as-joystick position
+//                              could steer the plane after release.)
+//   [9..15] reserved, always 0
 
 // Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
 //   A VR controller runtime (WebXR in ysflight-web) writes each grabbed
