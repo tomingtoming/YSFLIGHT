@@ -9592,17 +9592,53 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 {
 	const FsSocketServer &server=svrSta.svr;
 
+	// ysflight-web VR: same menu-FBO presentation as DrawInClientMode above
+	// (see its doc comment).  Server mode starved the watchdog through its
+	// whole 2D lobby -- INITIALIZE1..3 draw NOTHING even in flat play -- so
+	// on device the session showed stale projection-layer buffers ("demo
+	// screen flicker") for ~1.4s and then ended.
+	const YSBOOL inSim=(FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0!=server.serverState) ? YSTRUE : YSFALSE;
+	const int vrMenuPass=(0!=FsVrIsActive() && YSTRUE!=inSim) ? 1 : 0;
+	if(0!=vrMenuPass)
+	{
+		if(0.0f==FsVrMenuDataPointer()[0])
+		{
+			return; // No menu FBO: silent, watchdog falls back to 2D.
+		}
+		// Choosers render from FsNetworkStandby's own bracket (Run side).
+		if(FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState &&
+		   0==server.serverState &&
+		   0!=server.choosingMode && 10!=server.choosingMode)
+		{
+			FsVrMarkSimDrawn();
+			return;
+		}
+		FsVrBeginMenuRender();
+		FsClearScreenAndZBuffer(YsGrayScale(0.25));
+	}
 	switch(svrSta.runState)
 	{
 	case FsServerRunLoop::SERVER_RUNSTATE_INITIALIZE1:
 	case FsServerRunLoop::SERVER_RUNSTATE_INITIALIZE2:
 	case FsServerRunLoop::SERVER_RUNSTATE_INITIALIZE3:
+		if(0!=vrMenuPass)
+		{
+			// Flat play draws nothing here; on the menu quad an empty gray
+			// board reads as broken, so show the boot console instead.
+			fsConsole.Show();
+		}
 		break;
 	case FsServerRunLoop::SERVER_RUNSTATE_LOOP:
 		{
 			if(0==server.serverState)
 			{
-				if(server.choosingMode==0 && (server.nextConsoleUpdateTime<0.0 || YSTRUE==svrSta.svrDlg->NeedRedraw()))
+				if(0!=vrMenuPass)
+				{
+					// Fresh frame every tick for the quad swapchain (see
+					// DrawInClientMode's identical branch).
+					fsConsole.Show();
+				}
+				else if(server.choosingMode==0 && (server.nextConsoleUpdateTime<0.0 || YSTRUE==svrSta.svrDlg->NeedRedraw()))
 				{
 					fsConsole.Show();
 					server.nextConsoleUpdateTime=0.5;
@@ -9621,6 +9657,12 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 		break;
 	case FsServerRunLoop::SERVER_RUNSTATE_TERMINATED:
 		break;
+	}
+	if(0!=vrMenuPass)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // menuDrawn: web layer shows the quad
 	}
 }
 
