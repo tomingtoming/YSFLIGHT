@@ -800,7 +800,7 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	double lft,rit,top,btm;
 
-	if(0!=FsVrIsActive())
+	if(0!=FsVrIsActive() && 0==FsVrIsMenuPassActive())
 	{
 		// Asymmetric per-eye frustum from the VR runtime, re-built at the
 		// near/far range requested by the caller so that the depth-slicing
@@ -840,44 +840,63 @@ void FsSetSceneProjection(const class FsProjection &prj)
 	YsGLMakeFrustum(projMat,(GLfloat)lft,(GLfloat)rit,(GLfloat)btm,(GLfloat)top,(GLfloat)prj.nearz,(GLfloat)prj.farz);
 	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
 	{
-		// Single-pass stereo: the scene pass renders from the eye-0 pose
-		// (SimDrawAllScreen), so fold each eye's difference into its view of
-		// the projection array: projection[i] = P_i * V_i * inverse(V_0).
-		// V_i are the GL-convention eye-view matrices from the VR runtime;
-		// the composition happens entirely in GL space, downstream of the
-		// engine's LH->GL modelView, so no z-flip conjugation is needed.
-		YsMatrix4x4 eye0View;
-		eye0View.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
-		YsMatrix4x4 eye0ViewInv=eye0View;
-		eye0ViewInv.Invert();
-
 		GLfloat stereoProj[32];
-		for(int eye=0; eye<FsVrNumEye; ++eye)
+		if(0!=FsVrIsMenuPassActive())
 		{
-			double eLft,eRit,eBtm,eTop;
-			FsVrGetEyeFrustum(eye,prj.nearz,prj.farz,eLft,eRit,eBtm,eTop);
-			GLfloat eyeProjMat[16];
-			YsGLMakeFrustum(eyeProjMat,(GLfloat)eLft,(GLfloat)eRit,(GLfloat)eBtm,(GLfloat)eTop,(GLfloat)prj.nearz,(GLfloat)prj.farz);
-
-			YsMatrix4x4 eyeProj;
-			eyeProj.CreateFromOpenGlCompatibleMatrix(eyeProjMat);
-			YsMatrix4x4 eyeView;
-			eyeView.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
-
-			YsMatrix4x4 combined=eyeProj*eyeView*eye0ViewInv;
-			GLfloat combinedMat[16];
-			combined.GetOpenGlCompatibleMatrix(combinedMat);
+			// The menu is rendered once into a mono texture used by an XR
+			// quad layer.  Shared 3D renderers stay compiled for multiview
+			// while the session is active, so give both view slots the same
+			// normal window projection.  Feeding the two eye projections
+			// here draws aircraft-selection previews twice in the mono FBO.
 			for(int i=0; i<16; ++i)
 			{
-				stereoProj[eye*16+i]=combinedMat[i];
+				stereoProj[i]=projMat[i];
+				stereoProj[16+i]=projMat[i];
+			}
+		}
+		else
+		{
+			// Single-pass stereo: the scene pass renders from the eye-0 pose
+			// (SimDrawAllScreen), so fold each eye's difference into its view of
+			// the projection array: projection[i] = P_i * V_i * inverse(V_0).
+			// V_i are the GL-convention eye-view matrices from the VR runtime;
+			// the composition happens entirely in GL space, downstream of the
+			// engine's LH->GL modelView, so no z-flip conjugation is needed.
+			YsMatrix4x4 eye0View;
+			eye0View.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+			YsMatrix4x4 eye0ViewInv=eye0View;
+			eye0ViewInv.Invert();
+
+			for(int eye=0; eye<FsVrNumEye; ++eye)
+			{
+				double eLft,eRit,eBtm,eTop;
+				FsVrGetEyeFrustum(eye,prj.nearz,prj.farz,eLft,eRit,eBtm,eTop);
+				GLfloat eyeProjMat[16];
+				YsGLMakeFrustum(eyeProjMat,(GLfloat)eLft,(GLfloat)eRit,(GLfloat)eBtm,(GLfloat)eTop,(GLfloat)prj.nearz,(GLfloat)prj.farz);
+
+				YsMatrix4x4 eyeProj;
+				eyeProj.CreateFromOpenGlCompatibleMatrix(eyeProjMat);
+				YsMatrix4x4 eyeView;
+				eyeView.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
+
+				YsMatrix4x4 combined=eyeProj*eyeView*eye0ViewInv;
+				GLfloat combinedMat[16];
+				combined.GetOpenGlCompatibleMatrix(combinedMat);
+				for(int i=0; i<16; ++i)
+				{
+					stereoProj[eye*16+i]=combinedMat[i];
+				}
 			}
 		}
 		YsGLSLSetShared3DRendererProjectionStereo(stereoProj);
-		// Cache for the VR HUD-quad composite (SimDrawAllScreen), which must
-		// use the exact same per-view projection array as the scene pass.
-		for(int i=0; i<32; ++i)
+		if(0==FsVrIsMenuPassActive())
 		{
-			fsLastSceneProjectionStereo[i]=stereoProj[i];
+			// Cache for the VR HUD-quad composite (SimDrawAllScreen), which must
+			// use the exact same per-view projection array as the scene pass.
+			for(int i=0; i<32; ++i)
+			{
+				fsLastSceneProjectionStereo[i]=stereoProj[i];
+			}
 		}
 	}
 	else
@@ -1820,4 +1839,3 @@ void FsGraphicsTest(int i)
 	YsGLSLRenderTexture2D(bitmapRenderer,0,0,YSGLSL_HALIGN_LEFT,YSGLSL_VALIGN_TOP,256,256,i);
 	YsGLSLEndUseBitmapRenderer(bitmapRenderer);
 }
-
