@@ -1173,6 +1173,20 @@ void FsVrEndGuiRender(void)
 // used for HUD and GUI -- see fsvr.h's doc comment on FsVrSetHudRenderTarget:
 // the three passes never run concurrently within a frame, so one set of
 // state variables is enough).
+// Text-input focus latch for the menu pass (menuData[6] -- see fsvr.h).
+// fsguilib's fsGuiTextBoxFocusDrawnHook fires whenever a text box draws
+// itself focused; latching it strictly between Begin/EndMenuRender means
+// menuData[6] reports exactly "the menu frame just rendered contains a
+// keyboard-focused text box" (the aircraft-select search box, the lobby
+// user-name box, ...).  The web layer reads it each frame to summon the
+// headset's system keyboard -- see fswebxr.cpp's text-input bridge.
+extern void (*fsGuiTextBoxFocusDrawnHook)(void);
+static int fsVrMenuTextInputPending=0;
+static void FsVrMenuTextBoxFocusDrawn(void)
+{
+	fsVrMenuTextInputPending=1;
+}
+
 void FsVrBeginMenuRender(void)
 {
 	const float *menuData=FsVrMenuDataPointer();
@@ -1183,11 +1197,14 @@ void FsVrBeginMenuRender(void)
 	FsSetWindowSizeOverride(1,texW,texH);
 	glBindFramebuffer(GL_FRAMEBUFFER,menuFbo);
 	FsVrSetMenuPassActive(1);
+	fsGuiTextBoxFocusDrawnHook=FsVrMenuTextBoxFocusDrawn;
+	fsVrMenuTextInputPending=0;
 }
 
 void FsVrEndMenuRender(void)
 {
 	FsVrSetMenuPassActive(0);
+	FsVrMenuDataPointer()[6]=(float)fsVrMenuTextInputPending;
 	glBindFramebuffer(GL_FRAMEBUFFER,0);
 	FsVrSetHudRenderTarget(0,0,0);
 	FsSetWindowSizeOverride(0,0,0);

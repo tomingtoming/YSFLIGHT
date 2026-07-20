@@ -282,7 +282,13 @@ extern "C"
 	      [4] texHeight
 	      [5] menuDrawn (0/1; ENGINE writes 1 each frame it rendered the menu
 	                     into the FBO; web layer resets to 0 after reading)
-	      [6][7] reserved (0) */
+	      [6] textInput (0/1; ENGINE writes 1 when the menu frame it just
+	                     rendered contains a keyboard-focused text box --
+	                     latched via fsguilib's fsGuiTextBoxFocusDrawnHook in
+	                     FsVrBegin/EndMenuRender, fsopengl2.0.cpp.  Read by
+	                     the web layer's text-input bridge to summon the
+	                     headset's system keyboard)
+	      [7] reserved (0) */
 	float *FsVrMenuDataPointer(void);
 
 	/*! Raised by fsrunloop.cpp::DrawMenu while it is rendering into the
