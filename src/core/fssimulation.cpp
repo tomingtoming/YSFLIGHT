@@ -6571,6 +6571,13 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// together, and without SimDrawGunAim a VR pilot had no lead cue to
 		// line the gun up on a moving target (the reported bug: "the circle
 		// that lines the gun up with the enemy plane never shows in VR").
+		// Both take the eye pose as their drawing frame so the aim marks
+		// size and billboard in the SAME frame as SimDrawContainer's
+		// designator rings; with the flat default (player frame) the head's
+		// off-boresight angle shrank the lead circle by its cosine relative
+		// to the designator ring around the same target (second Quest
+		// report: "the circles are different sizes and don't overlap
+		// cleanly") -- see SimDrawGunAim's comment for the geometry.
 		if(YSTRUE!=cfgPtr->neverDrawAirplaneContainer)
 		{
 			const double designatorT0=FsVrPerfNow();
@@ -6579,8 +6586,8 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode))
 			{
 				SimDrawContainer(eyeViewMode);
-				SimDrawGunAim();
-				SimDrawBombingAim(eyeViewMode);
+				SimDrawGunAim(&eyeViewMode);
+				SimDrawBombingAim(eyeViewMode,YSTRUE);
 			}
 			else if(YSTRUE==cfgPtr->drawPlayerNameAlways)
 			{
@@ -9756,10 +9763,35 @@ void FsSimulation::SimDrawContainer(const ActualViewMode &actualViewMode) const
 	}
 }
 
-void FsSimulation::SimDrawGunAim(void) const
+void FsSimulation::SimDrawGunAim(const ActualViewMode *drawViewMode) const
 {
 	const FsExistence *playerObj=GetPlayerObject();
 	YSBOOL hasLeadGunSight=(NULL!=GetPlayerAirplane() ? GetPlayerAirplane()->Prop().GetLeadGunSight() : YSTRUE);
+
+	// The aim marks are DrawCircleContainer/DrawCrossDesignator2 billboards:
+	// the viewpoint matrix passed to them fixes their SIZE (radius=z/18
+	// along that frame's z axis) as well as their orientation.  Flat play
+	// (drawViewMode==NULL) sizes them in the player's own frame -- in
+	// cockpit view the camera shares that frame, so the lead circle and
+	// SimDrawContainer's camera-frame designator ring around the same
+	// target come out equal and nest cleanly.  In VR the head rotates away
+	// from the boresight, so the player frame understates z by
+	// cos(head-to-boresight angle) and the lead circle rendered up to ~20%
+	// smaller than the designator ring right next to it (the Quest report:
+	// "the circles are different sizes and don't overlap cleanly").
+	// Passing the eye pose here sizes and billboards the aim marks in the
+	// SAME frame as the designator rings, restoring the flat-play nesting;
+	// target selection (SimCalculateGunAim) stays in the gun's own frame
+	// either way -- this is a drawing frame, not an aiming change.
+	YsAtt3 drawAtt;
+	YsMatrix4x4 drawMat;
+	if(NULL!=drawViewMode)
+	{
+		drawAtt=drawViewMode->viewAttitude;
+		drawMat.Translate(drawViewMode->viewPoint);
+		drawMat.Rotate(drawAtt);
+		drawMat.Invert();
+	}
 
 	if(playerObj!=NULL &&
 	   playerObj->GetWeaponOfChoice()==FSWEAPON_GUN &&
@@ -9773,7 +9805,12 @@ void FsSimulation::SimDrawGunAim(void) const
 			YsAtt3 att;
 			YsMatrix4x4 mat;
 
-			if(FSEX_GROUND==playerObj->GetType())
+			if(NULL!=drawViewMode)
+			{
+				att=drawAtt;
+				mat=drawMat;
+			}
+			else if(FSEX_GROUND==playerObj->GetType())
 			{
 				const FsGround *playerGround=(const FsGround *)playerObj;
 				pos=playerObj->GetPosition();
@@ -9794,7 +9831,7 @@ void FsSimulation::SimDrawGunAim(void) const
 	}
 
 	const FsAirplane *playerPlane=GetPlayerAirplane();
-	if(playerPlane!=NULL && 
+	if(playerPlane!=NULL &&
 	   playerPlane->Prop().GetHasPilotControlledTurret()==YSTRUE)
 	{
 		YsVec3 dir,aim,cock;
@@ -9804,9 +9841,17 @@ void FsSimulation::SimDrawGunAim(void) const
 			YsAtt3 att;
 			YsMatrix4x4 mat;
 
-			pos=playerPlane->Prop().GetPosition();
-			att=playerPlane->Prop().GetAttitude();
-			mat=playerPlane->Prop().GetInverseMatrix();
+			if(NULL!=drawViewMode)
+			{
+				att=drawAtt;
+				mat=drawMat;
+			}
+			else
+			{
+				pos=playerPlane->Prop().GetPosition();
+				att=playerPlane->Prop().GetAttitude();
+				mat=playerPlane->Prop().GetInverseMatrix();
+			}
 
 			playerPlane->Prop().GetCockpitPosition(cock);
 			playerPlane->Prop().GetMatrix().Mul(cock,cock,1.0);
@@ -9905,16 +9950,27 @@ YSRESULT FsSimulation::SimCalculateGunAim(const FsAirplane *&target,YsVec3 &aim)
 	return YSERR;
 }
 
-void FsSimulation::SimDrawBombingAim(const ActualViewMode &actualViewMode) const
+void FsSimulation::SimDrawBombingAim(const ActualViewMode &actualViewMode,YSBOOL sizeMarksInViewFrame) const
 {
 	auto &viewPoint=actualViewMode.viewPoint;
 	auto &viewAttitude=actualViewMode.viewAttitude;
 
 	const YsMatrix4x4 *mat;
+	YsMatrix4x4 viewMat;
 	const FsAirplane *playerPlane;
 
 	playerPlane=GetPlayerAirplane();
 	mat=&playerPlane->Prop().GetInverseMatrix();
+	if(YSTRUE==sizeMarksInViewFrame)
+	{
+		// Same eye-frame sizing override as SimDrawGunAim's drawViewMode --
+		// see the comment there.  The flat default (YSFALSE) keeps the
+		// airframe-inverse sizing this function has always used.
+		viewMat.Translate(viewPoint);
+		viewMat.Rotate(viewAttitude);
+		viewMat.Invert();
+		mat=&viewMat;
+	}
 
 	if(playerPlane!=NULL &&
 	   (playerPlane->Prop().GetWeaponOfChoice()==FSWEAPON_BOMB ||
