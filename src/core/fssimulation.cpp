@@ -6560,17 +6560,29 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// drawPlayerNameAlways) and target-selection logic (which targets get
 		// marked at all) -- reusing SimDrawContainer wholesale rather than
 		// reimplementing any of it, so VR and flat can never drift on WHICH
-		// targets get a mark or what they look like. (SimDrawGunAim/
-		// SimDrawBombingAim -- the lead-gunsight and bombing-aim crosshairs --
-		// are deliberately NOT called here: a different feature from target
-		// designation, and would double up with the collimated world-space
-		// reticle below.)
+		// targets get a mark or what they look like. SimDrawGunAim/
+		// SimDrawBombingAim ride along under the same NeedToDrawGameInfo
+		// gate, in SimDrawAircraftInterior's exact order: their red gun-lead
+		// circle / bombing-impact circle are DrawCircleContainer world-space
+		// billboards at the COMPUTED aim point (SimCalculateGunAim's lead
+		// solution moves with the target, the bomb circle sits at the
+		// predicted impact), so they do NOT duplicate the fixed boresight
+		// reticle below -- flat play shows crosshair AND lead circle
+		// together, and without SimDrawGunAim a VR pilot had no lead cue to
+		// line the gun up on a moving target (the reported bug: "the circle
+		// that lines the gun up with the enemy plane never shows in VR").
 		if(YSTRUE!=cfgPtr->neverDrawAirplaneContainer)
 		{
 			const double designatorT0=FsVrPerfNow();
 			FsFlushScene();
 			FsSetCameraPosition(eyeViewMode.viewPoint,eyeViewMode.viewAttitude,YSTRUE);
-			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode) || YSTRUE==cfgPtr->drawPlayerNameAlways)
+			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode))
+			{
+				SimDrawContainer(eyeViewMode);
+				SimDrawGunAim();
+				SimDrawBombingAim(eyeViewMode);
+			}
+			else if(YSTRUE==cfgPtr->drawPlayerNameAlways)
 			{
 				SimDrawContainer(eyeViewMode);
 			}
