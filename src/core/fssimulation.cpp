@@ -6832,6 +6832,21 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			// model's own unscaled units) down to ~18 cm.
 			const double HANDPROP_SCALE=0.375;
 
+			// Grip-point registration.  The models draw from their console
+			// ORIGIN (base-plate level), so anchoring that origin at the
+			// grab point put the BASE at the pilot's hand with the rod/
+			// lever floating above it (round-5 device report: "I want the
+			// part I GRAB to be where I grabbed").  Shift the console down
+			// its own up-axis so the part the palm actually wraps lands on
+			// the anchor instead:
+			//   stick.dnm    rod grip tops out at y~0.483 (model units,
+			//                measured); palm centre on the grip ~0.43.
+			//   throttle.dnm lever knob spans y 0.13..0.23 with the knob
+			//                over the console origin at mid-travel; palm
+			//                centre ~0.17.
+			const double STICK_GRIP_Y=0.43;
+			const double THROTTLE_GRIP_Y=0.17;
+
 			if(0.5f<handCtlData[0]) // Right hand: virtual stick grabbed.
 			{
 				const YsVec3 pos(handPose[0],handPose[1],-handPose[2]);
@@ -6843,7 +6858,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				att.SetTwoVector(fwd,up);
 
 				FsVrBeginHandPropDraw();
-				userInput.DrawJoystick(pos,att,HANDPROP_SCALE);
+				userInput.DrawJoystick(pos-up*(STICK_GRIP_Y*HANDPROP_SCALE),att,HANDPROP_SCALE);
 				FsVrEndHandPropDraw();
 			}
 
@@ -6858,7 +6873,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				att.SetTwoVector(fwd,up);
 
 				FsVrBeginHandPropDraw();
-				userInput.DrawThrottle(pos,att,HANDPROP_SCALE);
+				userInput.DrawThrottle(pos-up*(THROTTLE_GRIP_Y*HANDPROP_SCALE),att,HANDPROP_SCALE);
 				FsVrEndHandPropDraw();
 			}
 		}
