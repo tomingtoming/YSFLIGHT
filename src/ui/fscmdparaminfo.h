@@ -25,6 +25,7 @@ public:
 		EXEMODE_FLYYFS=4,
 		EXEMODE_ENDURANCE=5,
 		EXEMODE_INTERCEPT=6,
+		EXEMODE_LANDINGPRACTICE=7,
 		EXEMODE_REPLAYRECORD=100,
 		EXEMODE_OPENINGDEMOFOREVER=200
 	};
@@ -42,6 +43,7 @@ public:
 	FsInterceptMissionInfo interceptMissionInfo;
 	int endModeNumWingman,endModeWingmanLevel;
 	YSBOOL endModeAllowAAM;
+	int landingPracticeLevel;  // 0-based (menu levels 1-15 -> 0-14)
 
 	YSBOOL showAirList,showFldList,showStpList;
 	YSBOOL deleteFirstStartFile;
