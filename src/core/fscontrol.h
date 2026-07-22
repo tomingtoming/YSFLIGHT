@@ -282,11 +282,26 @@ public:
 
 	YSRESULT VerifyAndFixJoystickAxisAssignment(FsControlAssignment &ctlAssign);
 	void DrawJoystick(const YsVec3 &pos,const YsAtt3 &att) const;
+	/*! Same as DrawJoystick(pos,att), but the model is additionally scaled
+	    (uniformly, about its own origin -- the stick's base) by scale
+	    before being placed at pos/att.  Needed because the calibration-
+	    diorama stick/throttle DNM assets are authored console-sized (see
+	    fscontrol.cpp's DrawJoystick doc comment); a VR hand-held prop
+	    needs them shrunk to roughly hand/HOTAS size. */
+	void DrawJoystick(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const;
 	void DrawThrottle(const YsVec3 &pos,const YsAtt3 &att) const;
+	/*! See DrawJoystick(pos,att,scale)'s doc comment. */
+	void DrawThrottle(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const;
 	void DrawRudder(const YsVec3 &pos,const YsAtt3 &att) const;
 	YSRESULT CenterJoystick(class FsControlAssignment &ctlAssign);
 private:
 	double Margin(double org,const double deadZone) const;
+
+	/*! Overrides aileron/elevator/rudder/throttle from the VR controller
+	    state block (see fsvr.h) while FsVrIsActive.  Called at the end of
+	    ReadControl so a grabbed VR stick/throttle takes priority over
+	    keyboard/mouse/joystick for the frame. */
+	void ApplyVrControlOverride(void);
 };
 
 
@@ -419,6 +434,16 @@ public:
 	const FsControlAssignment *ctlAssign;
 
 	time_t waiting,waitStart;
+
+	// VR world anchor for the calibration diorama (see Draw's VR branch):
+	// captured lazily on the first VR-drawn WAITING_FOR_BUTTON frame after
+	// Initialize, it maps the diorama's fixed-camera frame onto wherever the
+	// pilot's head was (yaw + position only) at that moment, so the scene
+	// reads as a world-fixed object centered in front of them instead of
+	// following the head (2026-07 Quest feedback).  mutable because Draw is
+	// const and the capture is a pure presentation concern.
+	mutable YSBOOL vrAnchorCaptured;
+	mutable YsMatrix4x4 vrAnchor;
 
 	FsCenterJoystick();
 	~FsCenterJoystick();

@@ -163,6 +163,7 @@ YSBOOL FsSimulation::DemoModeOneStep(FsDemoModeInfo &info,YSBOOL drawSmokeAndVap
 		}
 
 		SimulateOneStep(passedTime,YSTRUE,drawSmokeAndVapor,YSFALSE,YSFALSE,FSUSC_ENABLE/*YSTRUE*/,YSFALSE);
+		PrepareRenderView(passedTime); // restore DEMO view/camera prep lost when 578676a hoisted it out of SimulateOneStep
 
 		if(preserveFlightRecord!=YSTRUE)
 		{

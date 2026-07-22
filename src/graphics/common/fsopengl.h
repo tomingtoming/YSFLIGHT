@@ -69,8 +69,75 @@ void FsEnableShadowMap(
     int samplerIdent,int shadowMapIdent);
 void FsDisableShadowMap(int samplerIdent,int shadowMapIdent);
 
+// VR single-pass-stereo shadow-map render support (see fsopengl2.0.cpp and
+// fsvr.h's FsVrShadowFboDataPointer doc comment for WHY: multiview-compiled
+// programs cannot draw into the per-cascade single-layer depth FBOs, so each
+// cascade renders into a shared two-layer depth-array FBO and its layer 0 is
+// then depth-blitted into the cascade's ordinary 2D depth texture).
+//   FsVrShadowMapMultiviewReady   -- 1 iff the web layer published a usable
+//       multiview shadow target sized texWid x texHei (both must match the
+//       cascade size: an equal-rectangle blit is a GLES3 depth-blit
+//       requirement).
+//   FsVrBindShadowMapMultiviewFbo -- bind it as the draw framebuffer (call
+//       in place of the cascade texture's own BindFrameBuffer).
+//   FsVrBlitShadowMapFromMultiview-- with the cascade's own single-layer FBO
+//       currently bound (BindFrameBuffer), blit the array's layer-0 depth
+//       into it.
+int FsVrShadowMapMultiviewReady(int texWid,int texHei);
+void FsVrBindShadowMapMultiviewFbo(void);
+void FsVrBlitShadowMapFromMultiview(int texWid,int texHei);
+
 void FsSetSceneProjection(const class FsProjection &prj);
 void FsSet2DDrawing(void);
+
+// VR single-pass-stereo HUD composite (see fsopengl2.0.cpp).  FsVrBeginHudRender
+// / FsVrEndHudRender bracket the off-screen 2D HUD pass into the two-layer
+// multiview HUD framebuffer; FsVrDrawHudQuad composites that texture array onto
+// a cockpit-anchored world-space quad (corner = 4 x vec3, BL,BR,TR,TL).
+void FsVrBeginHudRender(void);
+void FsVrEndHudRender(void);
+void FsVrDrawHudQuad(const float corner[12]);
+
+// VR single-pass-stereo collimated gunsight reticle (see fsopengl2.0.cpp).
+// Draws a world-space cross (lineVtx = 8 x vec3, 4 GL_LINES segments) far along
+// the boresight through each eye's own cached stereo projection, so it reads as
+// collimated at optical infinity instead of a fixed-distance flat quad.  Drawn
+// with the shared VariColor3D line renderer, blending on, depth test off, fog
+// off; replaces the gun crosshair that used to be baked into the flat HUD glass.
+void FsVrDrawReticle(const float lineVtx[24],const YsColor &col);
+
+// VR single-pass-stereo hand-held HOTAS prop draw bracket (see
+// fsopengl2.0.cpp).  Wraps a call to FsFlightControl::DrawJoystick/
+// DrawThrottle (an ordinary FsVisualDnm::Draw, NOT the raw-vertex world-space
+// path the reticle/tint above use) so the model cannot be swallowed by
+// nearer cockpit geometry already in the depth buffer: re-establishes the
+// scene's cached stereo projection + eye-0 viewport (same restore
+// FsVrDrawReticle performs, in case the HUD/GUI off-screen passes left them
+// pointed at a texture-sized ortho setup instead) and disables depth
+// testing, saving the previous state.  Always pair Begin with End.
+void FsVrBeginHandPropDraw(void);
+void FsVrEndHandPropDraw(void);
+
+// VR single-pass-stereo in-flight-GUI-dialog composite (see fsopengl2.0.cpp).
+// Same bracket/composite shape as the HUD trio above, driven by
+// FsVrGuiDataPointer (fsvr.h) instead of FsVrHudDataPointer: renders whatever
+// modal in-flight dialog is currently open into its own off-screen two-layer
+// multiview framebuffer and composites it onto a second, GUI-anchored quad.
+// Reuses the same HUD-quad GL renderer (it takes the texture array as a
+// parameter, so no second renderer instance is needed).
+void FsVrBeginGuiRender(void);
+void FsVrEndGuiRender(void);
+void FsVrDrawGuiQuad(const float corner[12]);
+
+// VR single-pass-stereo G-load blackout(dark)/redout(red) full-field tint
+// (see fsopengl2.0.cpp).  Draws a huge, close, camera-facing solid-colour
+// quad (corner = 4 x vec3, BL,BR,TR,TL, built by the caller from the same
+// fwd/up/right cockpit basis the HUD quad/reticle use) through each eye's
+// own cached stereo projection, covering the ENTIRE eye frustum regardless
+// of headset FOV -- drawn AFTER the HUD quad/reticle so it darkens/reddens
+// everything, matching the physiological effect. alpha<=0 is an early-out
+// (no GPU cost, no state changes) when there is no G-load effect active.
+void FsVrDrawFullScreenTint(const float corner[12],float r,float g,float b,float alpha);
 
 void FsBeginDrawShadow(void);  // Set polygon offset -1,-1 and enable.
 void FsEndDrawShadow(void);    // Disable polygon offset.

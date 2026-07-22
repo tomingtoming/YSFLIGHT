@@ -1,5 +1,9 @@
 #include <memory>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #define FSSIMPLEWINDOW_DONT_INCLUDE_OPENGL_HEADERS
 #include <fssimplewindow.h>
 
@@ -7,6 +11,7 @@
 #include <fsguifiledialog.h>
 
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 
 #include "fsconfig.h"
 #include "fsoption.h"
@@ -1341,6 +1346,29 @@ void FsRunLoop::AfterDemoAction(void)
 	}
 }
 
+#ifdef __EMSCRIPTEN__
+// ysflight-web (flight replays): the engine records every flight in memory, but no
+// web-reachable trigger persists that recording to disk (-saveflight only fires at app
+// exit; the prevflight.dat saved when leaving a flight is a START snapshot WITHOUT the
+// NUMRECOR records).  Save the full world (which DOES include the per-frame records) to
+// a fixed .yfs in the IDBFS-persisted user dir, then syncfs to IndexedDB NOW — at
+// flight-end, not at beforeunload, which would race the ?freeflight return-to-top
+// reload.  The shell copies it into its replays/ history and plays it via -replayrecord.
+static void SaveLastReplayForWeb(class FsWorld *world)
+{
+	if(nullptr!=world && YSTRUE==world->SimulationIsPrepared())
+	{
+		YsWString fn;
+		fn.Set(FsGetUserYsflightDir());
+		fn.Append(L"/ysfw-lastreplay.yfs");
+		if(YSOK==world->Save(fn,3,4,2,2,2,2,0.0))
+		{
+			EM_ASM({ try { Module.FS.syncfs(false, function(){}); } catch(e){} });
+		}
+	}
+}
+#endif
+
 void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 {
 	FsDisableIME();  // Just in case.
@@ -1350,8 +1378,45 @@ void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 		runModeStack.Increment();
 	}
 
+	const RUNMODE prevRunMode=runModeStack.Last().runMode;
+
 	runModeStack.Last().runMode=runMode;
 	runModeStack.Last().runModeCounter=0;
+
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: tell the web shell whether we are flying (vs in a menu) so it
+	// can hide the Room/invite overlay and the connection badge during flight, and
+	// whether we are playing a replay so it can drive ?replay deep-links / return-to-top.
+	{
+		const int inFlight=
+			(YSRUNMODE_FLY_REGULAR==runMode || YSRUNMODE_FLY_DEMOMODE==runMode ||
+			 YSRUNMODE_FLY_CLIENTMODE==runMode || YSRUNMODE_FLY_SERVERMODE==runMode) ? 1 : 0;
+		const int replaying=(YSRUNMODE_REPLAYRECORD==runMode) ? 1 : 0;
+		EM_ASM({
+			// Use dedicated globals; do NOT touch globalThis.ysfwRtc, because
+			// jsRtcInit early-returns if ysfwRtc already exists, and clobbering it
+			// here would drop its methods (e.g. overlay) -> "R.overlay is not a function".
+			globalThis.ysfwInFlight = !!$0;
+			globalThis.ysfwReplaying = !!$1;
+		}, inFlight, replaying);
+	}
+
+	// ysflight-web (flight replays): a MULTIPLAYER flight (client/server) ends here
+	// rather than through EndSimulationMode, so persist its recording when leaving a
+	// network-fly mode for a non-fly mode.  Solo flights are handled in
+	// EndSimulationMode (below); the opening demo and replay playback are excluded.
+	{
+		const bool wasNetFlying=
+			(YSRUNMODE_FLY_CLIENTMODE==prevRunMode || YSRUNMODE_FLY_SERVERMODE==prevRunMode);
+		const bool nowFlying=
+			(YSRUNMODE_FLY_REGULAR==runMode || YSRUNMODE_FLY_CLIENTMODE==runMode ||
+			 YSRUNMODE_FLY_SERVERMODE==runMode);
+		if(wasNetFlying && !nowFlying)
+		{
+			SaveLastReplayForWeb(world);
+		}
+	}
+#endif
 
 	// Actually wait until all buttons, keys are clear.
 	FsPollDevice();
@@ -2304,6 +2369,12 @@ void FsRunLoop::DrawInSimulationMode(void)
 
 void FsRunLoop::EndSimulationMode(void)
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web (flight replays): persist the just-finished SOLO flight's recording
+	// HERE — the canonical end of a regular flight, with the live sim (and its
+	// per-frame NUMRECOR records) still intact, before PrepareReplaySimulation.
+	SaveLastReplayForWeb(world);
+#endif
 	world->PrepareReplaySimulation();
 	if(nullptr!=mainCanvas)
 	{
@@ -2478,6 +2549,26 @@ void FsRunLoop::DrawMenu(void) const
 		return;
 	}
 
+	const int vrActive=FsVrIsActive();
+	if(0!=vrActive)
+	{
+		const float *menuData=FsVrMenuDataPointer();
+		if(0.0f==menuData[0])
+		{
+			// Menu FBO was never allocated.  This only happens in environments
+			// that cannot create the menu quad at all (no WebXR layers /
+			// multiview support -- setupMenu is gated on vr.mvLayer and runs
+			// synchronously inside vr.enter() before FsVrIsActive goes up, so
+			// in the normal path this branch is unreachable).  Deliberately do
+			// NOT call FsVrMarkSimDrawn here: let the watchdog end the session
+			// after ~100 silent frames so the user falls back to the 2D page
+			// instead of being trapped in a live black-void session.
+			return;
+		}
+		FsVrBeginMenuRender();
+	}
+
+	// ---- Drawing body (shared between VR and 2D path) ----
 	FsClearScreenAndZBuffer(YsGrayScale(0.25));
 	FsSet2DDrawing();
 	if((nullptr==mainCanvas || YSTRUE!=mainCanvas->ShowConsole()) &&
@@ -2496,7 +2587,7 @@ void FsRunLoop::DrawMenu(void) const
 	if(world->SimulationIsPrepared()!=YSTRUE)
 	{
 		if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-		   newFltMsgBmp.GetWidth()>0 && 
+		   newFltMsgBmp.GetWidth()>0 &&
 		   newFltMsgBmp.GetHeight()>0)
 		{
 			FsDrawBmp(newFltMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2507,7 +2598,7 @@ void FsRunLoop::DrawMenu(void) const
 		if(YSTRUE==world->PlayerPlaneIsReady() || YSTRUE==world->PlayerGroundIsReady())
 		{
 			if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-			   simFlyMsgBmp.GetWidth()>0 && 
+			   simFlyMsgBmp.GetWidth()>0 &&
 			   simFlyMsgBmp.GetHeight()>0)
 			{
 				FsDrawBmp(simFlyMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2516,7 +2607,7 @@ void FsRunLoop::DrawMenu(void) const
 		else
 		{
 			if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-			   simRepMsgBmp.GetWidth()>0 && 
+			   simRepMsgBmp.GetWidth()>0 &&
 			   simRepMsgBmp.GetHeight()>0)
 			{
 				FsDrawBmp(simRepMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2529,6 +2620,16 @@ void FsRunLoop::DrawMenu(void) const
 		mainCanvas->Show();
 		mainCanvas->SetNeedRedraw(YSFALSE);
 	}
+	// ---- End drawing body ----
+
+	if(0!=vrActive)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // signal web layer: menu was drawn this frame
+		return; // Do NOT call FsSwapBuffers in VR
+	}
+
 	FsSwapBuffers();
 }
 
@@ -2569,6 +2670,17 @@ YSBOOL FsRunLoop::NeedRedraw(void) const
 		switch(runModeStack.GetEnd().runMode)
 		{
 		case YSRUNMODE_MENU:
+			if(0!=FsVrIsActive())
+			{
+				// VR: the menu is presented on an XRQuadLayer whose swapchain
+				// needs a fresh frame every vsync, and DrawMenu's menuDrawn
+				// flag doubles as the quad's per-frame visibility signal (and
+				// feeds the session watchdog).  The 2D redraw throttle below
+				// would starve all three whenever the menu is idle -- the
+				// on-device symptom was the menu quad flickering in and out
+				// as ray movement (synthetic mouse) toggled NeedRedraw.
+				return YSTRUE;
+			}
 			if((nullptr!=mainCanvas && YSTRUE==mainCanvas->NeedRedraw()) ||
 			   YSTRUE==FsCheckWindowExposure() ||
 			   YSTRUE==needRedraw)

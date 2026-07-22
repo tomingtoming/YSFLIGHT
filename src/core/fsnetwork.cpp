@@ -20,6 +20,7 @@
 #include "fspluginmgr.h"
 
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 #include "platform/common/fswindow.h"
 
 #ifdef _WIN32
@@ -1156,7 +1157,9 @@ YSRESULT FsSocketServer::CheckAndSendPendingData(int clientId,const double &curr
 		}
 		else if(user[clientId].airTypeToSend.GetN()>0)
 		{
-			SendAirplaneList(clientId,unitNum);
+			// 255, not unitNum(32): SendAirplaneList packs one <=4KiB packet and the
+			// name count is a byte -- see the caps inside.
+			SendAirplaneList(clientId,255);
 		}
 		else if(user[clientId].useMissileReadBack!=YSTRUE)
 		{
@@ -1822,6 +1825,11 @@ YSRESULT FsSocketServer::BroadcastChatTextMessage(const char txt[])
 
 YSRESULT FsSocketServer::BroadcastTextMessage(const char txt[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; drop outbound chat.
+	(void)txt;
+	return YSOK;
+#endif
 	YSSIZE_T packetLength;
 	unsigned char dat[256];
 	FsSetInt(dat  ,FSNETCMD_TEXTMESSAGE);
@@ -2625,7 +2633,7 @@ YSRESULT FsSocketServer::ReceiveLogOnUser(int clientId,int version,const char re
 		{
 			user[clientId].airTypeToSend.Append(airName);
 		}
-		SendAirplaneList(clientId,32);  // <- Version check is done inside.
+		SendAirplaneList(clientId,255);  // <- Version check is done inside.
 
 
 
@@ -2756,7 +2764,18 @@ YSRESULT FsSocketServer::ReceiveLoadFieldReadBack(int clientId,unsigned char dat
 		printf("%d\n",(int)user[clientId].fldToSend.GetN());
 	}
 
-	CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	// Ack-clock the log-on chain (same rationale as the airplane-list drain):
+	// this read-back gates the next stage of CheckAndSendPendingData's else-if
+	// ladder, which otherwise waits out the pacing timer between every stage.
+	// The timer stays as the retransmission fallback.  PENDING-only: the
+	// ladder's completion tail is not idempotent (it re-announces log-on and
+	// re-sends SendLogOnComplete), and only the PENDING-gated periodic pump
+	// was ever meant to reach it.
+	if(user[clientId].state==FSUSERSTATE_PENDING)
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	}
 
 	return YSOK;
 }
@@ -2787,7 +2806,13 @@ YSRESULT FsSocketServer::ReceiveConfigStringReadBack(int clientId,unsigned char 
 		printf("%d\n",(int)user[clientId].configStringToSend.GetN());
 	}
 
-	// CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	// Ack-clock the log-on chain: see ReceiveLoadFieldReadBack.  PENDING-only,
+	// because the ladder's completion tail is not idempotent.
+	if(user[clientId].state==FSUSERSTATE_PENDING)
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
+	}
 
 	return YSOK;
 }
@@ -2839,6 +2864,18 @@ YSRESULT FsSocketServer::ReceiveListReadBack(int clientId,unsigned char dat[])
 		if(FsVerboseMode==YSTRUE)
 		{
 			printf("%d\n",(int)user[clientId].airTypeToSend.GetN());
+		}
+
+		// Ack-clock the drain: this read-back proves the previous batch arrived,
+		// so expire the pacing timer and let the call below send the next batch
+		// immediately.  Timer-paced batches (one per ~1.5s) made the log-on
+		// handshake take minutes with add-on aircraft in the thousands; the
+		// timer keeps running as the retransmission fallback for a lost
+		// batch or read-back.  PENDING-only: the ladder's completion tail is
+		// not idempotent (see ReceiveLoadFieldReadBack).
+		if(user[clientId].state==FSUSERSTATE_PENDING)
+		{
+			user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
 		}
 
 		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
@@ -2996,6 +3033,22 @@ YSRESULT FsSocketServer::ReceiveReadBack(int clientId,unsigned char dat[])
 		printf("Fatal Error: Unrecognized read back is sent to the server.\n");
 		DisconnectUser(clientId);;
 		break;
+	}
+
+	// Ack-clock the log-on chain: the flag set above unblocks the next stage
+	// of CheckAndSendPendingData's else-if ladder, which otherwise waits out
+	// the pacing timer between every stage (~0.5s each while PENDING, ~6
+	// stages).  Kick the pump now; the timer stays as the retransmission
+	// fallback.  Guards: PENDING-only, because the ladder's completion tail
+	// is not idempotent (it re-announces log-on and re-sends
+	// SendLogOnComplete -- read-backs keep arriving for the whole session),
+	// and a non-empty airplane-list queue means a list batch is in flight --
+	// kicking then would resend the un-acked head batch.
+	if(user[clientId].state==FSUSERSTATE_PENDING &&
+	   0==user[clientId].airTypeToSend.GetN())
+	{
+		user[clientId].sendCriticalInfoTimer=sim->currentTime-1.0;
+		CheckAndSendPendingData(clientId,sim->currentTime,1.5);
 	}
 
 	return YSOK;
@@ -4429,15 +4482,28 @@ YSRESULT FsSocketServer::SendAirplaneList(int clientId,int numSend)
 
 			strcpy((char *)dat.GetArray()+curPos,user[clientId].airTypeToSend[id]);
 
-			if(dat[5]==255 || dat.GetN()>=1024)
+			// 4096, NOT 1024: both peers' com buffers are 8KiB (COMBUFSIZE), so a
+			// 4KiB list packet is safe, and it carries ~4x the aircraft names per
+			// round trip.  dat[5] (name count) is a byte, hence the 255 cap.
+			if(dat[5]==255 || dat.GetN()>=4096)
 			{
-				AddMessage("Sending Airplane List...\n");
+				// One in-game message per ~1000 names: ack-clocked batches arrive in
+				// a burst, and a per-batch AddMessage floods the message area.
+				const int remain=(int)(user[clientId].airTypeToSend.GetN()-dat[5]);
+				if((remain/1000)!=((remain+dat[5])/1000))
+				{
+					AddMessage("Sending Airplane List...\n");
+				}
+				printf("Airplane list: %d names remaining\n",remain);
 				return SendPacket(clientId,dat.GetN(),dat);
 			}
 		}
 
 		if(dat[5]>0)
 		{
+			// Progress on stdout: with thousands of add-on aircraft the drain is
+			// the visible part of log-on; one line per batch (~40 for 6000 names).
+			printf("Airplane list: %d names remaining\n",(int)(user[clientId].airTypeToSend.GetN()-dat[5]));
 			return SendPacket(clientId,dat.GetN(),dat);
 		}
 
@@ -5687,6 +5753,11 @@ YSRESULT FsSocketClient::SendGndCmd(int idOnCli,const char cmd[])
 
 YSRESULT FsSocketClient::SendTextMessage(const char txt[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; drop outbound chat.
+	(void)txt;
+	return YSOK;
+#endif
 
 	unsigned char dat[256];
 	FsSetInt(dat  ,FSNETCMD_TEXTMESSAGE);
@@ -6965,6 +7036,11 @@ YSRESULT FsSocketClient::ReceiveListUser(unsigned char dat[])
 
 YSRESULT FsSocketClient::ReceiveTextMessage(unsigned char dat[])
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-web: chat is disabled on the web build; discard inbound chat.
+	(void)dat;
+	return YSOK;
+#endif
 	int i;
 	char *ptr,prv;
 
@@ -7568,7 +7644,9 @@ static YSRESULT FsNetworkStandby
 				break;
 			case FSNCC_COMMON_INLINECHAT:
 				escCount=0;
+#ifndef __EMSCRIPTEN__
 				choosingMode=10;  // Typing chat message
+#endif
 				break;
 			case FSNCC_COMMON_WHOKILLEDME:
 				{
@@ -7603,9 +7681,27 @@ static YSRESULT FsNetworkStandby
 		{
 			FsGuiDialogItem *itm;
 
+			// ysflight-web VR: render the chooser into the menu FBO so it
+			// shows on the menu quad (see FsSimulation::DrawInClientMode's
+			// doc comment -- the Draw side skips its own clear while a
+			// chooser is up, so this Run-side frame is what gets presented).
+			const int vrMenuPass=(0!=FsVrIsActive() && 0.0f!=FsVrMenuDataPointer()[0]) ? 1 : 0;
+			if(0!=vrMenuPass)
+			{
+				FsVrBeginMenuRender();
+			}
 			FsClearScreenAndZBuffer(YsGrayScale(0.25));
 			chooseAirplane.Show();
-			FsSwapBuffers();
+			if(0!=vrMenuPass)
+			{
+				FsVrEndMenuRender();
+				FsVrMarkSimDrawn();
+				FsVrMenuDataPointer()[5]=1.0f;
+			}
+			else
+			{
+				FsSwapBuffers();
+			}
 
 			chooseAirplane.SetMouseState(lb,mb,rb,mx,my);
 			chooseAirplane.KeyIn(ky,(YSBOOL)FsGetKeyState(FSKEY_SHIFT),(YSBOOL)FsGetKeyState(FSKEY_CTRL),(YSBOOL)FsGetKeyState(FSKEY_ALT));
@@ -7632,9 +7728,24 @@ static YSRESULT FsNetworkStandby
 		{
 			FsGuiDialogItem *itm;
 
+			// Same VR menu-FBO bracket as choosingMode 1 above.
+			const int vrMenuPass=(0!=FsVrIsActive() && 0.0f!=FsVrMenuDataPointer()[0]) ? 1 : 0;
+			if(0!=vrMenuPass)
+			{
+				FsVrBeginMenuRender();
+			}
 			FsClearScreenAndZBuffer(YsBlack());
 			chooseStartPosition.Show();
-			FsSwapBuffers();
+			if(0!=vrMenuPass)
+			{
+				FsVrEndMenuRender();
+				FsVrMarkSimDrawn();
+				FsVrMenuDataPointer()[5]=1.0f;
+			}
+			else
+			{
+				FsSwapBuffers();
+			}
 
 			chooseStartPosition.SetMouseState(lb,mb,rb,mx,my);
 			chooseStartPosition.KeyIn(ky,(YSBOOL)FsGetKeyState(FSKEY_SHIFT),(YSBOOL)FsGetKeyState(FSKEY_CTRL),(YSBOOL)FsGetKeyState(FSKEY_ALT));
@@ -7915,6 +8026,7 @@ void FsGuiServerDialog::MakeDialog(FsSimulation *sim,FsSocketServer *server)
 
 
 
+#ifndef __EMSCRIPTEN__
 	AddStaticText(0,FSKEY_NULL,"Port:",YSTRUE);
 	portTxt=AddStaticText(0,FSKEY_NULL,"9999",5,1,YSFALSE);
 	{
@@ -7922,6 +8034,10 @@ void FsGuiServerDialog::MakeDialog(FsSimulation *sim,FsSocketServer *server)
 		str.Printf("%d",server->netcfg->portNumber);
 		portTxt->SetText(str);
 	}
+#else
+	// ysflight-web: WebRTC host has no TCP port; hide the Port row.
+	portTxt=nullptr;
+#endif
 
 
 	AddStaticText(0,FSKEY_NULL,"IFF",YSTRUE);
@@ -8316,7 +8432,9 @@ static void FsPrintServerMenu(
 			fsConsole.Printf("Cannot obtain host address. Error in gethostbyname()\n");
 		}
 
+#ifndef __EMSCRIPTEN__
 		fsConsole.Printf("PORT=%d",port);
+#endif
 	}
 	else
 	{
@@ -8413,9 +8531,9 @@ YSRESULT FsSimulation::ServerJoin(
 	userInput.Initialize();
 
 	air->Prop().ReadBackControl(userInput);
-	Gear=air->Prop().GetLandingGear();
-	pGear=air->Prop().GetLandingGear();
-	ppGear=air->Prop().GetLandingGear();
+	prevGear=air->Prop().GetLandingGear();
+	gearMotionDir=0;
+	gearStillTime=0.0;
 	userInput.hasAb=air->Prop().GetHasAfterburner();
 
 	YsArray <int,64> weaponConfig;
@@ -8899,6 +9017,11 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			else
 			{
 				++svrSta.startServerRetryCount;
+#ifdef __EMSCRIPTEN__
+				// The browser can never start listening; skip the 90-second
+				// retry cycle and terminate server mode immediately.
+				svrSta.startServerRetryCount=6;
+#endif
 				if(6<=svrSta.startServerRetryCount)
 				{
 					svrSta.fatalError=FsServerRunLoop::SERVER_FATAL_CANNOT_START;
@@ -9210,6 +9333,7 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			}
 
 			SimulateOneStep(passedTime,YSFALSE,YSTRUE,YSFALSE,networkStandby,userControl,YSFALSE);
+			PrepareRenderView(passedTime); // restore network(server) view/camera prep lost when 578676a hoisted it out of SimulateOneStep
 			if(svrSta.netcfg.recordWhenServerMode!=YSTRUE)
 			{
 				DemoModeRipOffEarlyPartOfRecord();
@@ -9468,17 +9592,53 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 {
 	const FsSocketServer &server=svrSta.svr;
 
+	// ysflight-web VR: same menu-FBO presentation as DrawInClientMode above
+	// (see its doc comment).  Server mode starved the watchdog through its
+	// whole 2D lobby -- INITIALIZE1..3 draw NOTHING even in flat play -- so
+	// on device the session showed stale projection-layer buffers ("demo
+	// screen flicker") for ~1.4s and then ended.
+	const YSBOOL inSim=(FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0!=server.serverState) ? YSTRUE : YSFALSE;
+	const int vrMenuPass=(0!=FsVrIsActive() && YSTRUE!=inSim) ? 1 : 0;
+	if(0!=vrMenuPass)
+	{
+		if(0.0f==FsVrMenuDataPointer()[0])
+		{
+			return; // No menu FBO: silent, watchdog falls back to 2D.
+		}
+		// Choosers render from FsNetworkStandby's own bracket (Run side).
+		if(FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState &&
+		   0==server.serverState &&
+		   0!=server.choosingMode && 10!=server.choosingMode)
+		{
+			FsVrMarkSimDrawn();
+			return;
+		}
+		FsVrBeginMenuRender();
+		FsClearScreenAndZBuffer(YsGrayScale(0.25));
+	}
 	switch(svrSta.runState)
 	{
 	case FsServerRunLoop::SERVER_RUNSTATE_INITIALIZE1:
 	case FsServerRunLoop::SERVER_RUNSTATE_INITIALIZE2:
 	case FsServerRunLoop::SERVER_RUNSTATE_INITIALIZE3:
+		if(0!=vrMenuPass)
+		{
+			// Flat play draws nothing here; on the menu quad an empty gray
+			// board reads as broken, so show the boot console instead.
+			fsConsole.Show();
+		}
 		break;
 	case FsServerRunLoop::SERVER_RUNSTATE_LOOP:
 		{
 			if(0==server.serverState)
 			{
-				if(server.choosingMode==0 && (server.nextConsoleUpdateTime<0.0 || YSTRUE==svrSta.svrDlg->NeedRedraw()))
+				if(0!=vrMenuPass)
+				{
+					// Fresh frame every tick for the quad swapchain (see
+					// DrawInClientMode's identical branch).
+					fsConsole.Show();
+				}
+				else if(server.choosingMode==0 && (server.nextConsoleUpdateTime<0.0 || YSTRUE==svrSta.svrDlg->NeedRedraw()))
 				{
 					fsConsole.Show();
 					server.nextConsoleUpdateTime=0.5;
@@ -9497,6 +9657,12 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 		break;
 	case FsServerRunLoop::SERVER_RUNSTATE_TERMINATED:
 		break;
+	}
+	if(0!=vrMenuPass)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // menuDrawn: web layer shows the quad
 	}
 }
 
@@ -9947,9 +10113,9 @@ YSRESULT FsSimulation::ClientState_StandBy(
 				ClearUserInterface();    // 2009/03/29
 
 				air->Prop().ReadBackControl(userInput);
-				Gear=air->Prop().GetLandingGear();
-				pGear=air->Prop().GetLandingGear();
-				ppGear=air->Prop().GetLandingGear();
+				prevGear=air->Prop().GetLandingGear();
+				gearMotionDir=0;
+				gearStillTime=0.0;
 				userInput.hasAb=air->Prop().GetHasAfterburner();
 
 				// 2001/06/24
@@ -10422,6 +10588,7 @@ printf("%s %d\n",__FUNCTION__,__LINE__);
 				SimulateOneStep(1.0,YSFALSE,YSTRUE,YSFALSE,networkStandby,userControl,YSFALSE);
 				cliSta.cli.SendQueryAirStateForReducingWarpProblem();
 			}
+			PrepareRenderView(passedTime); // restore network(client) view/camera prep lost when 578676a hoisted it out of SimulateOneStep
 
 			if(cliSta.netcfg.recordWhenClientMode!=YSTRUE)
 			{
@@ -10585,6 +10752,41 @@ printf("%s %d\n",__FUNCTION__,__LINE__);
 
 void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 {
+	// ysflight-web VR: every 2D phase of client mode (the logon console, the
+	// network-standby "terminal", the terminating prompt) renders into the VR
+	// menu FBO and is presented on the world-anchored menu quad, exactly like
+	// the main menu (FsRunLoop::DrawMenu).  Without this no draw path fed the
+	// presentation watchdog, so the session ended ~1.4s into the lobby (Quest
+	// field report).  The in-simulation branch (clientState!=0) keeps the
+	// normal 3D multiview path, which feeds the watchdog itself
+	// (SimDrawAllScreen).
+	const YSBOOL inSim=(FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0!=cliSta.cli.clientState) ? YSTRUE : YSFALSE;
+	const int vrMenuPass=(0!=FsVrIsActive() && YSTRUE!=inSim) ? 1 : 0;
+	if(0!=vrMenuPass)
+	{
+		if(0.0f==FsVrMenuDataPointer()[0])
+		{
+			// No menu FBO (layers-unsupported browser): stay silent and let
+			// the watchdog return the user to the 2D page -- the same
+			// deliberate non-feed as FsRunLoop::DrawMenu.
+			return;
+		}
+		// The aircraft/start-position choosers (choosingMode 1/2) render
+		// their frame from the RUN side (FsNetworkStandby's own VR menu
+		// bracket, earlier this same tick); re-clearing here would blank it.
+		// Just keep the watchdog fed and leave the frame alone.
+		if(FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState &&
+		   0==cliSta.cli.clientState &&
+		   0!=cliSta.cli.choosingMode && 10!=cliSta.cli.choosingMode)
+		{
+			FsVrMarkSimDrawn();
+			return;
+		}
+		FsVrBeginMenuRender();
+		// Defined background for the branches below that draw nothing
+		// (fsConsole.Show clears again on its own -- harmless).
+		FsClearScreenAndZBuffer(YsGrayScale(0.25));
+	}
 	switch(cliSta.runState)
 	{
 	case FsClientRunLoop::CLIENT_RUNSTATE_INITIALIZE1:
@@ -10596,7 +10798,14 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 		{
 			if(cliSta.cli.clientState==0)  // Network Standby
 			{
-				if(cliSta.cli.choosingMode==0 && (cliSta.cli.nextConsoleUpdateTime<0.0 || YSTRUE==cliSta.cliDlg->NeedRedraw()))
+				if(0!=vrMenuPass)
+				{
+					// The menu-quad swapchain needs a fresh frame every tick
+					// (see updateMenuLayer's 8-frame hide grace); the 0.5s
+					// console throttle below would blink the quad in and out.
+					fsConsole.Show();
+				}
+				else if(cliSta.cli.choosingMode==0 && (cliSta.cli.nextConsoleUpdateTime<0.0 || YSTRUE==cliSta.cliDlg->NeedRedraw()))
 				{
 					fsConsole.Show();
 					cliSta.cli.nextConsoleUpdateTime=0.5;
@@ -10619,6 +10828,12 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 
 	case FsClientRunLoop::CLIENT_RUNSTATE_TERMINATED:
 		break;
+	}
+	if(0!=vrMenuPass)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // menuDrawn: web layer shows the quad
 	}
 }
 

@@ -28,6 +28,18 @@
 
 #include "fstextresource.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// Lazy-pack on-demand bridge: the engine notifies JS which model file the
+// selection dialog is about to need, so the shell can pre-materialize that blob
+// from OPFS into the engine FS (boot only materialized .lst/.dat metadata; heavy
+// .dnm/.srf payload is left in OPFS and copied in on demand).
+EM_JS(void, YsfwOnChoiceHighlight, (const char *kind, const char *path), {
+	var f = window.ysfwOnChoiceHighlight;
+	if (typeof f === 'function') { f(UTF8ToString(kind), UTF8ToString(path)); }
+});
+#endif
+
 
 FsChoose::FsChoose(int n) : fullChoice(fullChoiceAllocator), filterList(fullChoiceAllocator)
 {
@@ -1181,6 +1193,38 @@ int FsChoose::GetNumChoice(void)
 
 void FsChoose::DrawChosenAirplane(FsWorld *world)
 {
+#ifdef __EMSCRIPTEN__
+	// Tell JS which aircraft is highlighted so it can pre-materialize the .dnm from
+	// OPFS before the ~300ms-still preview load below opens it.  Notify only when
+	// the highlighted model changes (cheap debounce); idempotent on the JS side.
+	{
+		const char *airName=GetChoice();
+		const FsAirplaneTemplate *t;
+		if(airName!=nullptr && (t=world->GetAirplaneTemplate(airName))!=nullptr)
+		{
+			// Notify once per highlighted aircraft (debounce by name), pushing every
+			// heavy model file -- visual(.dnm), collision(.srf), cockpit, LOD -- so
+			// both the preview and the subsequent flight find them materialized.
+			static YsString lastAir;
+			if(strcmp(airName,lastAir.GetArray())!=0)
+			{
+				lastAir=airName;
+				const wchar_t *fn[4]={
+					t->GetVisualFileName(),t->GetCollisionFileName(),
+					t->GetCockpitFileName(),t->GetLodFileName()};
+				YsString u8;
+				for(int i=0;i<4;i++)
+				{
+					if(fn[i]!=nullptr && fn[i][0]!=0)
+					{
+						u8.EncodeUTF8 <wchar_t> (fn[i]);
+						YsfwOnChoiceHighlight("air",u8.GetArray());
+					}
+				}
+			}
+		}
+	}
+#endif
 #ifdef WIN32
 	int stillTime;
 	stillTime=YsAbs(clock()-lastCursorMoveClock);
@@ -1245,6 +1289,28 @@ void FsChoose::DrawChosenAirplane(FsWorld *world)
 
 void FsChoose::DrawChosenField(FsWorld *world)
 {
+#ifdef __EMSCRIPTEN__
+	// Tell JS which field (map) is highlighted so it can pre-materialize the .fld
+	// from OPFS before the ~300ms-still load below opens it.  Debounce by name.
+	{
+		const char *fldName=GetChoice();
+		if(fldName!=nullptr)
+		{
+			static YsString lastFld;
+			if(strcmp(fldName,lastFld.GetArray())!=0)
+			{
+				lastFld=fldName;
+				const wchar_t *fn=world->GetFieldVisualFileName(fldName);
+				if(fn!=nullptr && fn[0]!=0)
+				{
+					YsString u8;
+					u8.EncodeUTF8 <wchar_t> (fn);
+					YsfwOnChoiceHighlight("fld",u8.GetArray());
+				}
+			}
+		}
+	}
+#endif
 	if(scn!=NULL)
 	{
 	#ifdef WIN32
@@ -2179,6 +2245,9 @@ void FsGuiChooseAircraft::Initialize(void)
 
 	filterEnabled=YSFALSE;
 
+	airListResetPending=YSFALSE;
+	airListResetRequestClock=0;
+
 	createSearch=YSTRUE;
 	selectListBoxRow=10;
 	showAirplane=YSTRUE;
@@ -2268,7 +2337,42 @@ void FsGuiChooseAircraft::OnTextBoxChange(FsGuiTextBox *txt)
 {
 	if(txt==searchTxt)
 	{
+		// Debounce: see the member declaration.  The actual rebuild happens in
+		// Interval() once the search text has been stable for the hold-off period.
+		airListResetPending=YSTRUE;
+		airListResetRequestClock=FsGuiClock();
+	}
+}
+
+void FsGuiChooseAircraft::Interval(void)
+{
+	FsGuiDialogWithFieldAndAircraft::Interval();
+	const unsigned int searchDebounceMs=200;
+	if(YSTRUE==airListResetPending && airListResetRequestClock+searchDebounceMs<FsGuiClock())
+	{
+		airListResetPending=YSFALSE;
 		ResetAircraftList();
+	}
+
+	// Preview pre-warm.  Show() draws the preview once the selection has been
+	// stable for 1000ms.  For an aircraft that has never been previewed in this
+	// session, that first draw synchronously parses the .dnm (tens of thousands
+	// of lines for detailed models) and builds the VBOs in the same frame,
+	// which freezes the single-threaded WASM build for a moment.  Requesting
+	// the visual a little earlier moves the parse to its own frame in the quiet
+	// window, so the first preview frame only pays for VBO construction and
+	// drawing.  FsWorld caches the visual, so the eventual draw reuses it.
+	const unsigned int previewPrewarmDelayMs=400;
+	if(YSTRUE==showAirplane && nullptr!=airLbx && nullptr!=world &&
+	   airLbx->GetLastChangeClock()+previewPrewarmDelayMs<FsGuiClock())
+	{
+		YsString airSel;
+		airLbx->GetSelectedString(airSel);
+		if(0<airSel.Strlen() && 0!=airSel.Strcmp(airVisualPrewarmedFor))
+		{
+			airVisualPrewarmedFor=airSel;
+			world->GetAirplaneVisual(airSel);
+		}
 	}
 }
 

@@ -386,10 +386,13 @@ protected:
 // Customizable Factor
 	class FsFlightConfig *cfgPtr;
 
-// For landing gear / flap sound
-	double pGear,ppGear,Gear;
+// For landing gear / flap sound.  The one-time sound fires when the observed
+// value starts moving in a new direction; the direction stays latched until
+// the value moves the other way or has been stationary long enough to re-arm.
+	double prevGear,prevFlap;
+	int gearMotionDir,flapMotionDir;    // +1 extending, -1 retracting, 0 re-armed
+	double gearStillTime,flapStillTime; // simulated seconds since the value last moved
 	YSBOOL hideNextGearSound;
-	double pFlap,ppFlap,Flap;
 
 // For flight record editing
 	double timeMarker[FSNTIMEMARKER];
@@ -591,6 +594,10 @@ public:
 	     YSBOOL demoMode,YSBOOL record,YSBOOL showTimer,YSBOOL networkStandby,FSUSERCONTROL userControl,
 	     YSBOOL showTimeMarker);
 	void DecideAllViewPoint(const double dt);
+	/*! Render-side view/camera preparation factored out of SimulateOneStep.
+	    Mutates only view state; no feedback into flight physics.  Intended to be
+	    called from the run loop between Update and the const Draw. */
+	void PrepareRenderView(const double dt);
 	void AfterSimulation(void);
 
 
@@ -599,6 +606,15 @@ public:
 	YSBOOL NeedRedraw(void) const;
 
 	void DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE simState,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const;
+	/*! Truthfully clears the VR GUI state block (FsVrGuiDataPointer's
+	    dialogVisible/apMenu + the menu-label block) for every
+	    DrawInNormalSimulationMode branch that does not itself keep it fresh
+	    (RUNNING's SimDrawAllScreen and CHECKCONTINUE's CheckContinueDraw do) --
+	    see DrawInNormalSimulationMode's doc comment for why this is needed:
+	    without it, the block goes stale (frozen at its last value) the
+	    instant the sim leaves RUNNING, which could otherwise read as a ghost
+	    dialog-open indicator with nothing actually open. */
+	void SimClearVrGuiStateIfActive(void) const;
 	void DrawInClientMode(const class FsClientRunLoop &clientModeRunLoop) const;
 	void DrawInServerMode(const class FsServerRunLoop &serverModeRunLoop) const;
 
@@ -883,6 +899,44 @@ protected:
 	void SimMakeUpCockpitIndicationSet(class FsCockpitIndicationSet &cockpitIndicationSet) const;
 	void SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const;
 	void SimDrawScreen(const double &dt,const FsCockpitIndicationSet &cockpitIndicationSet,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker,const ActualViewMode &actualViewMode) const;
+	/*! VR single-pass-stereo HUD: draws the primary 2D flying HUD (attitude,
+	    speed/altitude, VOR/ADF, radar) with the 2D coordinate system sized to
+	    the HUD texture.  Caller has already bound the off-screen HUD framebuffer
+	    (FsVrBeginHudRender). */
+	/*! demoMode gates the MISSILE!/STALL warning block (mirroring
+	    SimDrawForeground's own demoMode!=YSTRUE check) -- see this
+	    function's body for the exact condition chain, kept textually
+	    identical to SimDrawForeground's copy on purpose. */
+	void SimDrawVrHud(const FsCockpitIndicationSet &cockpitIndicationSet,const ActualViewMode &actualViewMode,YSBOOL demoMode) const;
+	/*! VR single-pass-stereo in-flight GUI dialog: draws whatever modal
+	    in-flight dialog (autopilot menu, radio-comm menus, replay/continue
+	    dialogs, ...) is currently open, with the 2D coordinate system sized
+	    to the GUI texture.  Caller has already bound the off-screen GUI
+	    framebuffer (FsVrBeginGuiRender).  Only runs the actual Show() (drawing)
+	    pass -- dialogVisible/apMenu/the menu-label block are computed by
+	    SimComputeVrGuiState below, independent of whether this ever gets
+	    called (the GUI quad composite is opt-in; see ysfwVrOptions.guiPanel
+	    in fswebxr.cpp).  Mirrors SimDrawGuiDialog's non-VR body (see its doc
+	    comment) but does not call FsSet2DDrawing/FsFlushScene at the SAME
+	    viewport size -- the caller's off-screen pass already did the
+	    viewport override. */
+	void SimDrawVrGui(void) const;
+	/*! Determines which modal in-flight dialog (if any) is currently open --
+	    the SAME selection SimDrawVrGui/SimDrawGuiDialog use (replay dialog,
+	    then the per-instance in-flight dialog, then the continue dialog) --
+	    and publishes it into the fsvr.h GUI block: FsVrGuiDataPointer()[5]
+	    (dialogVisible), [6] (apMenu, see that pointer's doc comment for the
+	    full member list this now covers), and FsVrGuiMenuPointer() (the
+	    dialog's option labels, via SimSerializeVrGuiMenu).  Called once per
+	    VR frame from SimDrawAllScreen UNCONDITIONALLY (unlike SimDrawVrGui's
+	    actual rendering pass), so the web layer's dialog-routing and
+	    selection-guide stay correct even when the GUI quad itself is never
+	    drawn. */
+	void SimComputeVrGuiState(void) const;
+	/*! Serializes dlg's option labels (FsGuiDialog::GetNumItem/GetItem) into
+	    FsVrGuiMenuPointer() -- see that pointer's doc comment in fsvr.h for
+	    the exact format.  dlg may be NULL (clears the block). */
+	void SimSerializeVrGuiMenu(const class FsGuiDialog *dlg) const;
 	void SimDrawShadowMap(const ActualViewMode &actualViewMode) const;
 	void SimDrawGuiDialog(void) const;
 	void SimDrawScreenZBufferSensitive(
@@ -936,9 +990,13 @@ protected:
 	void SimDrawContainer(const ActualViewMode &actualViewMode) const;
 	void SimDrawCrossDesignator(void) const;
 
-	void SimDrawGunAim(void) const;
+	// drawViewMode/sizeMarksInViewFrame: NULL/YSFALSE (flat play) sizes the
+	// aim marks in the player's own frame as always; the VR path passes the
+	// eye pose so the marks share the designator rings' sizing frame -- see
+	// SimDrawGunAim's comment.
+	void SimDrawGunAim(const ActualViewMode *drawViewMode=NULL) const;
 	YSRESULT SimCalculateGunAim(const FsAirplane *&target,YsVec3 &aim) const;
-	void SimDrawBombingAim(const ActualViewMode &actualViewMode) const;
+	void SimDrawBombingAim(const ActualViewMode &actualViewMode,YSBOOL sizeMarksInViewFrame=YSFALSE) const;
 
 	void SimBlastSound(YSBOOL demoMode);
 

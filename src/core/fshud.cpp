@@ -41,13 +41,16 @@ void FsHeadUpDisplay::SetAreaByCenter(long cx,long cy,long dx,long dy)
 	hei=dy;
 }
 
-void FsHeadUpDisplay::Draw(YSBOOL autoPilot,const class FsCockpitIndicationSet &cockpitIndicationSet)
+void FsHeadUpDisplay::Draw(YSBOOL autoPilot,const class FsCockpitIndicationSet &cockpitIndicationSet,YSBOOL drawCrossHair)
 {
 	const FsInstrumentIndication &inst=cockpitIndicationSet.inst;
 
 	const YsAtt3 attitudeIndication(-inst.heading,inst.pitch,inst.bank);
 
-	DrawCrossHair();
+	if(YSTRUE==drawCrossHair)
+	{
+		DrawCrossHair();
+	}
 	DrawHeading(attitudeIndication,YSTRUE,-inst.headingBug,inst.headingBugSelected);
 	DrawThrottle(inst.nEngine,inst.engineOutput,inst.afterBurner);
 	if(inst.hasVectorThrust==YSTRUE)

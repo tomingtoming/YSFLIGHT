@@ -22,6 +22,8 @@ elseif(APPLE)
 	set(TARGET_NAME ysflight${BITNESS}_gl1 ysflight${BITNESS}_gl2)
 elseif(ANDROID)
 	set(TARGET_NAME ysflight${BITNESS}_gl2)
+elseif(EMSCRIPTEN)
+	set(TARGET_NAME ysflight${BITNESS}_gl2)
 elseif(UNIX)
 	set(TARGET_NAME ysflight${BITNESS}_gl1 ysflight${BITNESS}_gl2)
 else()
@@ -206,8 +208,8 @@ elseif(APPLE)
 elseif(UNIX)
 	# -Wl,--no-as-needed required for g++ 4.8.4 Confirmed unnecessary with 5.4.0
 	#  http://stackoverflow.com/questions/19463602/compiling-multithread-code-with-g
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wl,--no-as-needed")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,--no-as-needed")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 else()
 endif()
 
@@ -293,7 +295,9 @@ if(ysd3d9_EXIST)
 endif()
 
 
-if(NOT ANDROID)
+if(EMSCRIPTEN)
+	add_executable(ysflight${BITNESS}_gl2 fsmain.cpp ${SRCS})
+elseif(NOT ANDROID)
 	add_executable(ysflight${BITNESS}_gl2 ${EXE_TYPE} fsmain.cpp ${SRCS})
 	add_executable(ysflight${BITNESS}_gl1 ${EXE_TYPE} fsmain.cpp ${SRCS})
 else()
@@ -385,7 +389,7 @@ foreach(ONE_TARGET ${TARGET_NAME})
 	target_link_libraries(${ONE_TARGET} ${LIB_DEPENDENCY})
 
 	# We suffered enough from the shared stdc++
-	if(UNIX AND NOT APPLE AND NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
+	if(UNIX AND NOT APPLE AND NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Android" AND NOT EMSCRIPTEN)
 		target_link_libraries(${ONE_TARGET} pthread -static-libstdc++ -static-libgcc)
 	endif()
 
@@ -574,6 +578,44 @@ elseif(ANDROID)
 		ysflight_graphics_gl2
 		fslazywindow
 	)
+elseif(EMSCRIPTEN)
+	target_link_libraries(ysflight${BITNESS}_gl2 
+		ysgl
+		yssystemfont
+		fsguilib_gl2 
+		ysflight_platform_emscripten 
+		ysscenery_dnm_gl2
+		ystexturemanager_gl
+		ysjoystick
+		ysjoycalibdlg_gl2
+		ysflight_graphics_gl2
+		fslazywindow
+	)
+	set_target_properties(ysflight${BITNESS}_gl2 PROPERTIES SUFFIX ".js")
+	target_link_options(ysflight${BITNESS}_gl2 PRIVATE
+		-sFULL_ES2=1
+		-sMAX_WEBGL_VERSION=2
+		-sASSERTIONS=1
+		# Single-threaded web build: see src/CMakeLists.txt for why -pthread
+		# (and -sPTHREAD_POOL_SIZE / -sDEFAULT_PTHREAD_STACK_SIZE) are omitted.
+		-sALLOW_MEMORY_GROWTH=1
+		-sSTACK_SIZE=8388608
+		-sFORCE_FILESYSTEM=1
+		-sEXIT_RUNTIME=0
+		-sENVIRONMENT=web
+		-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,UTF8ToString,stringToUTF8,ENV,Asyncify
+		-sEXPORTED_FUNCTIONS=_main,_malloc,_free
+		# Lazy-pack on-demand: ASYNCIFY lets the engine's synchronous fopen suspend
+		# while the shell materializes the file from OPFS (ysfw_openat.jslib overrides
+		# __syscall_openat).  This is THE funnel for every open -- demo/flight/selection
+		# all covered, including the no-still-delay paths the highlight prefetch missed.
+		-sASYNCIFY=1
+		-sASYNCIFY_STACK_SIZE=16384
+		"SHELL:--js-library ${YSFLIGHT_WEB_PORT_DIR}/ysfw_openat.jslib"
+		-lidbfs.js
+		-lopenal
+		"SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/../../runtime@/ysflight"
+	)
 elseif(UNIX)
 	target_link_libraries(ysflight${BITNESS}_gl1 
 		ysgl
@@ -622,7 +664,9 @@ endforeach(ONE_TARGET)
 
 
 
-foreach(ONE_TARGET ${TARGET_NAME})
-	add_custom_command(TARGET ${ONE_TARGET} PRE_BUILD 
-		COMMAND "python" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/runtime_timestamp.py" "${CMAKE_CURRENT_SOURCE_DIR}/../../runtime")
-endforeach(ONE_TARGET)
+if(NOT EMSCRIPTEN)
+	foreach(ONE_TARGET ${TARGET_NAME})
+		add_custom_command(TARGET ${ONE_TARGET} PRE_BUILD 
+			COMMAND "python" "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/runtime_timestamp.py" "${CMAKE_CURRENT_SOURCE_DIR}/../../runtime")
+	endforeach(ONE_TARGET)
+endif()

@@ -1,13 +1,67 @@
-set(TARGET_NAME "ysflight_platform_android")
-set(IS_LIBRARY_PROJECT 1)
-set(LIB_DEPENDENCY geblkernel geblgl ysclass ysscenery_dnm ysflight_common ysflight_core fssimplewindow)
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "WindowsStore")
+	return()
+endif()
+
+if(NOT BUILD_YSFLIGHT_CONSOLE_SERVER)
+	return()
+endif()
+
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	set(BITNESS 64)
+else()
+	set(BITNESS 32)
+endif()
+
+
+
+set(TARGET_NAME ysflight${BITNESS}_harness)
+set(VERBOSE_MODE 0)
+set(IS_LIBRARY_PROJECT 0)
+set(LIB_DEPENDENCY 
+geblkernel
+geblgl
+ysflight_ui
+ysflight_common
+ysflight_core
+ysflight_pathplanning 
+ysflight_externalconsole 
+ysflight_autopilot 
+ysflight_dynamics
+ysflight_vehicle 
+ysflight_util
+yssocket
+ysflight_graphics_common
+fsguilib
+fsguifiledialog
+ysbitmap
+ysbitmapfont
+ysfontrenderer
+ysport
+ysscenery_dnm
+ystexturemanager
+ysflight_filename
+ysclass
+ysclass11
+ysglcpp
+	ysnullsystemfont
+	ysscenery_dnm_nownd 
+	fsguilib_nownd
+	ystexturemanager_nownd
+	geblgl_nownd
+	ysglcpp_nownd
+	ysflight_platform_nownd 
+	ysflight_graphics_null 
+)
 set(INCLUDE_DEPENDENCY)
 set(OWN_HEADER_PATH .)
 set(ADDITIONAL_HEADER_PATH)
 set(SINGLE_TARGET 1)
-set(SUB_FOLDER YSFLIGHT/platform)
-set(REALLY_NEED_CPP11 0)    # Setting 1 will enable use of C++11 libraries, but lose compatibility with OSX 10.6.
-set(DATA_FILE_LOCATION)
+set(SUB_FOLDER "YSFLIGHT")
+set(REALLY_NEED_CPP11 1)    # Setting 1 will enable use of C++11 libraries, but lose compatibility with OSX 10.6.
+set(WIN_SUBSYSTEM CONSOLE)
+set(DATA_FILE_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/../../runtime")
+
 
 
 
@@ -142,10 +196,11 @@ endif()
 
 
 if(MSVC)
-	set(platform_SRCS "")
+	set(platform_SRCS hotasrc.rc)
 	set(platform_HEADERS "")
 elseif(APPLE)
-	set(platform_SRCS "")
+	set(platform_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../platform/macosx/APPL.icns)
+	set_source_files_properties(../platform/macosx/APPL.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 	set(platform_HEADERS "")
 elseif(UNIX)
 	set(platform_SRCS "")
@@ -157,17 +212,17 @@ endif()
 
 
 
+
+#tentative
 set(SRCS
 ${platform_SRCS}
-fsairsound.cpp
-fsplatform.cpp
+fsmainharness.cpp
 )
 
 set(HEADERS
 ${platform_HEADERS}
 )
 
-include_directories(../..)
 
 
 
@@ -338,3 +393,6 @@ if(DATA_FILE_LOCATION)
 endif()
 
 #YSEND
+
+
+

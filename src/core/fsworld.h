@@ -312,7 +312,8 @@ public:
 	YSRESULT LoadAirplaneTemplateList(const wchar_t rootDir[],const wchar_t dir[],const wchar_t prefix[],const wchar_t ext[]);
 	YSRESULT LoadAirplaneTemplate(
 	    const wchar_t rootDir[],
-	    const wchar_t prop[],const wchar_t vis[],const wchar_t coll[],const wchar_t cock[],const wchar_t lod[]);
+	    const wchar_t prop[],const wchar_t vis[],const wchar_t coll[],const wchar_t cock[],const wchar_t lod[],
+	    const char idxIdentify[]=nullptr,const char idxCategory[]=nullptr);
 	FsVisualDnm GetAirplaneVisual(const char idName[]) const;
 	const FsVisualSrf *GetAirplaneCollision(const char idName[]) const;
 	const FsVisualDnm GetAirplaneWeaponShapeOverride(const char idName[],FSWEAPONTYPE wpnType,int state) const;
@@ -486,6 +487,7 @@ public:
 	void AdjustPrecisionOfFlightRecord(const double &precPos,const double &precAng);
 
 	const FsAirplaneTemplate *GetAirplaneTemplate(const char idName[]) const;
+	const wchar_t *GetFieldVisualFileName(const char fldName[]) const; // lazy-pack: resolve a field's .fld path for on-demand materialize (FindFieldTemplate is protected)
 
 
 

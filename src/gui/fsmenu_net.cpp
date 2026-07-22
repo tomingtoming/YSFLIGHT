@@ -108,7 +108,12 @@ void FsGuiMainCanvas::Net_StartServerMode_OptionSelected(FsGuiDialog *closedDial
 			return;
 		}
 
+#ifdef __EMSCRIPTEN__
+		// ysflight-web: the WebRTC host ignores the TCP port; the field is hidden.
+		runLoop->StartNetServerMode(username,fldName,0);
+#else
 		runLoop->StartNetServerMode(username,fldName,svrDlg->portTxt->GetInteger());
+#endif
 	}
 }
 
@@ -167,7 +172,12 @@ void FsGuiMainCanvas::Net_StartClientMode_OptionSelected(FsGuiDialog *closedDial
 		YsString hostname,username;
 		cliDlg->hostAddrTxt->GetText(hostname);
 		cliDlg->userNameTxt->GetText(username);
+#ifdef __EMSCRIPTEN__
+		// ysflight-web: clients connect by Room ID over WebRTC; there is no port.
+		int netPort=0;
+#else
 		int netPort=cliDlg->portTxt->GetInteger();
+#endif
 
 		runLoop->StartNetClientMode(username,hostname,netPort);
 	}

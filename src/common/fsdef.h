@@ -6,7 +6,7 @@
 
 #define YSFLIGHT_VERSION 20181124
 #define YSFLIGHT_YFSVERSION 20180930
-#define YSFLIGHT_NETVERSION 20180930
+#define YSFLIGHT_NETVERSION 20260617 // ysflight-web: bumped to intentionally break compatibility with stock (non-web) clients.
 
 // VERSION 20060514 : 2006 Summer Test Ver.
 // VERSION 20060828 : 2006 Summer Official Ver.

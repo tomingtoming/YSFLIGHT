@@ -6,6 +6,7 @@
 
 #include "fs.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 #include "platform/common/fswindow.h"
 
 #include "graphics/common/fsfontrenderer.h"
@@ -16,6 +17,7 @@
 #include <ysglcpp.h>
 #include <ysglslcpp.h>
 #include <ysglsldrawfontbitmap.h>
+#include <ysglslhudquadrenderer.h>
 
 #include "fsopengl2.0.h"
 
@@ -152,8 +154,8 @@ static void FsSetBmpTexture(GLuint texId,const YsBitmap &bmp,YSBOOL repeat)
 	}
 	else
 	{
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP);
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 	}
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -161,7 +163,7 @@ static void FsSetBmpTexture(GLuint texId,const YsBitmap &bmp,YSBOOL repeat)
 	glTexImage2D
 	    (GL_TEXTURE_2D,
 	     0,
-	     4,
+	     GL_RGBA, // "4" is a GL1 relic; invalid in GLES2/WebGL.
 	     bmp.GetWidth(),
 	     bmp.GetHeight(),
 	     0,
@@ -183,6 +185,12 @@ static void FsMakeAlphaMask(YsBitmap &bmp)
 		rgba[i*4+2]=255;
 	}
 }
+
+// VR single-pass-stereo HUD composite: the texture-array quad renderer.  Only
+// non-NULL while the shared renderers are compiled stereo (multiview mode);
+// YsGLSLCreateHudQuadRenderer returns NULL otherwise, so this stays NULL on the
+// mono path and the composite is simply skipped.
+static struct YsGLSLHudQuadRenderer *fsHudQuadRenderer=NULL;
 
 void FsInitializeOpenGL(void)
 {
@@ -287,12 +295,18 @@ void FsInitializeOpenGL(void)
 	YsGLSLSetShared3DRendererSpecularExponent(600.0f);
 
 	YsGLSLCreateSharedBitmapFontRenderer();
+
+	// Stereo HUD-quad renderer: created only when the shared renderers are in
+	// multiview compile mode (returns NULL otherwise).
+	fsHudQuadRenderer=YsGLSLCreateHudQuadRenderer();
 }
 
 void FsReinitializeOpenGL(void)
 {
 	YsGLSLDeleteSharedRenderer();
 	YsGLSLDeleteSharedBitmapFontRenderer();
+	YsGLSLDeleteHudQuadRenderer(fsHudQuadRenderer);
+	fsHudQuadRenderer=NULL;
 	FsInitializeOpenGL();
 }
 
@@ -306,12 +320,31 @@ void FsUninitializeOpenGL(void)
 
 	YsGLSLDeleteSharedBitmapFontRenderer();
 	YsGLSLDeleteSharedRenderer();
+	YsGLSLDeleteHudQuadRenderer(fsHudQuadRenderer);
+	fsHudQuadRenderer=NULL;
 }
 
 
 void FsClearScreenAndZBuffer(const YsColor &clearColor)
 {
-	if(YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
+	if(0!=FsVrIsActive())
+	{
+		int x0,y0,wid,hei;
+		if(0!=FsVrHudRenderTargetActive())
+		{
+			// Off-screen pass (menu, HUD, or GUI): clear the full off-screen texture.
+			FsVrGetHudRenderSize(&wid,&hei);
+			x0=0; y0=0;
+		}
+		else
+		{
+			// Per-eye clear for the main scene.
+			FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		}
+		glScissor(x0,y0,wid,hei);
+		glEnable(GL_SCISSOR_TEST);
+	}
+	else if(YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
 	{
 		int x0,y0,wid,hei;
 		int mainWid,mainHei;
@@ -330,7 +363,7 @@ void FsClearScreenAndZBuffer(const YsColor &clearColor)
 	//   List base is reset back to zero when OpenGL context is re-made.
 	//   OpenGL context is re-made when the window is maximized, minimized or re-sized.
 
-	if(YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
+	if(0!=FsVrIsActive() || YSTRUE!=FsIsMainWindowActive() || YSTRUE==FsIsMainWindowSplit())
 	{
 		glDisable(GL_SCISSOR_TEST);
 	}
@@ -471,7 +504,7 @@ void FsFogOn(const YsColor &col,const double &visibility)
 	// f  0:Completely fogged out   1:Clear
 	// f=e^(-d*d)
 	// d  0:Clear      Infinity: Completely fogged out
-	// 99% fogged out means:  e^(-d*d)=0.01  WhatÅfs d?
+	// 99% fogged out means:  e^(-d*d)=0.01  WhatÔøΩfs d?
 	// -d*d=loge(0.01)
 	// -d*d= -4.60517
 	// d=2.146
@@ -500,6 +533,23 @@ void FsFogOff(void)
 
 static void FsSetupViewport(void)
 {
+	if(0!=FsVrHudRenderTargetActive())
+	{
+		// The VR HUD off-screen pass draws into the full HUD texture.
+		int w,h;
+		FsVrGetHudRenderSize(&w,&h);
+		glViewport(0,0,w,h);
+		return;
+	}
+	if(0!=FsVrIsActive())
+	{
+		// VR framebuffer viewport of the eye, bottom-left origin already.
+		int x0,y0,wid,hei;
+		FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		glViewport(x0,y0,wid,hei);
+		return;
+	}
+
 	int x0,y0,wid,hei;
 	int mainWid,mainHei;
 	FsGetWindowViewport(x0,y0,wid,hei); // x0,y0 is top-left corner.  OpenGL takes bottom-left corner.
@@ -522,7 +572,28 @@ void FsBeginRenderShadowMap(const YsMatrix4x4 &projTfm,const YsMatrix4x4 &viewTf
 	GLfloat viewMatLH[16];
 	viewTfmLH.GetOpenGlCompatibleMatrix(viewMatLH);
 
-	YsGLSLSetShared3DRendererProjection(projMat);
+	if(0!=FsVrIsMultiview())
+	{
+		// Multiview compile mode: every shared renderer's 'projection'
+		// uniform is a two-view mat4[2] indexed by gl_ViewID_OVR, and the
+		// mono setter only writes view 0 (leaving view 1 holding the last
+		// scene pass's eye-1 matrix -- garbage for a light-space pass).  A
+		// shadow map is light-space and view-INdependent, so both views get
+		// the SAME projection: the two layers of the multiview shadow FBO
+		// (see FsVrBindShadowMapMultiviewFbo above) render identically, and
+		// layer 0 is what gets blitted out for sampling.
+		GLfloat projStereo[32];
+		for(int i=0; i<16; ++i)
+		{
+			projStereo[i]=projMat[i];
+			projStereo[16+i]=projMat[i];
+		}
+		YsGLSLSetShared3DRendererProjectionStereo(projStereo);
+	}
+	else
+	{
+		YsGLSLSetShared3DRendererProjection(projMat);
+	}
 	YsGLSLSetShared3DRendererModelView(viewMatLH);
 
 	{
@@ -624,6 +695,99 @@ void FsDisableShadowMap(int samplerIdent,int shadowMapIdent)
 	glBindTexture(GL_TEXTURE_2D,0);
 }
 
+// ---- VR single-pass-stereo shadow-map render support ----------------------
+// See fsvr.h's FsVrShadowFboDataPointer doc comment for the full WHY: while
+// multiview is active every shared-renderer program carries
+// layout(num_views=2), and OVR_multiview2 refuses (INVALID_OPERATION,
+// verified on ANGLE) any draw into a framebuffer whose view count differs --
+// which the per-cascade single-layer depth FBOs do.  So the multiview shadow
+// pass draws into the shared two-layer depth-array FBO the web layer
+// publishes, then depth-blits its layer 0 into the cascade's ordinary 2D
+// depth texture, which the scene pass samples exactly like the flat path.
+// Emscripten/WebGL2-only machinery: the GLES2 headers this file builds
+// against have no glBlitFramebuffer, but the web build links with
+// -sMAX_WEBGL_VERSION=2 whose GL library provides it -- declare it (and the
+// two framebuffer-target enums) locally, guarded to the web build, the same
+// spirit as ystexturemanager_gl.cpp's GL_DEPTH_COMPONENT24 fallback.  The
+// desktop builds compile these to no-ops: multiview never engages there
+// (FsVrIsMultiview is only raised by the WebXR layer).
+#ifdef __EMSCRIPTEN__
+#ifndef GL_READ_FRAMEBUFFER
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#endif
+extern "C" void glBlitFramebuffer(
+    GLint srcX0,GLint srcY0,GLint srcX1,GLint srcY1,
+    GLint dstX0,GLint dstY0,GLint dstX1,GLint dstY1,
+    GLbitfield mask,GLenum filter);
+#endif
+
+int FsVrShadowMapMultiviewReady(int texWid,int texHei)
+{
+	const float *shadowFbo=FsVrShadowFboDataPointer();
+	return (0.0f!=shadowFbo[0] &&
+	        (float)texWid==shadowFbo[3] &&
+	        (float)texHei==shadowFbo[4] ? 1 : 0);
+}
+
+void FsVrBindShadowMapMultiviewFbo(void)
+{
+	const float *shadowFbo=FsVrShadowFboDataPointer();
+	glBindTexture(GL_TEXTURE_2D,0); // Same MacOSX/feedback discipline as YsTextureManager::Unit::BindFrameBuffer.
+	glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)shadowFbo[1]);
+}
+
+void FsVrBlitShadowMapFromMultiview(int texWid,int texHei)
+{
+#ifdef __EMSCRIPTEN__
+	// Caller contract: the cascade's own single-layer depth FBO is currently
+	// bound as GL_FRAMEBUFFER (i.e. both READ and DRAW) -- re-point only READ
+	// at the layer-0 view of the multiview depth array and blit.  Equal
+	// rectangles + NEAREST: both are hard GLES3 requirements for a
+	// DEPTH_BUFFER_BIT blit (and the formats match by construction --
+	// DEPTH_COMPONENT24 on both sides, see setupShadowFbo in fswebxr.cpp and
+	// ystexturemanager_gl.cpp's MakeActualTexture).  No restore needed: the
+	// caller's very next call is FsEndRenderShadowMap, which rebinds
+	// GL_FRAMEBUFFER (both targets) anyway.
+	const float *shadowFbo=FsVrShadowFboDataPointer();
+	glBindFramebuffer(GL_READ_FRAMEBUFFER,(GLuint)shadowFbo[2]);
+	glBlitFramebuffer(0,0,texWid,texHei,0,0,texWid,texHei,GL_DEPTH_BUFFER_BIT,GL_NEAREST);
+#else
+	(void)texWid;
+	(void)texHei;
+#endif
+}
+
+
+// Cached scene camera state for the VR single-pass-stereo HUD composite.
+// fsLastSceneProjectionStereo is the projection[2] array folded by
+// FsSetSceneProjection; fsLastSceneModelView is the world->eye0 modelView last
+// uploaded by FsSetCameraPosition.  SimDrawAllScreen retrieves both through the
+// getters below so the cockpit-anchored HUD quad shares the scene's matrices.
+static GLfloat fsLastSceneProjectionStereo[32]=
+{
+	1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1,
+	1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+};
+static GLfloat fsLastSceneModelView[16]=
+{
+	1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+};
+
+static void FsGetLastSceneProjectionStereofv(GLfloat out[32])
+{
+	for(int i=0; i<32; ++i)
+	{
+		out[i]=fsLastSceneProjectionStereo[i];
+	}
+}
+
+static void FsGetLastSceneModelViewfv(GLfloat out[16])
+{
+	for(int i=0; i<16; ++i)
+	{
+		out[i]=fsLastSceneModelView[i];
+	}
+}
 
 void FsSetSceneProjection(const class FsProjection &prj)
 {
@@ -633,14 +797,26 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	FsSetupViewport();
 	int xx0,yy0,wid,hei;
-	FsGetWindowViewport(xx0,yy0,wid,hei); // x0,y0 is top-left corner.  OpenGL takes bottom-left corner.
 
 	double lft,rit,top,btm;
 
-	lft=(double)(   -prj.cx)*prj.nearz/prj.prjPlnDist;
-	rit=(double)(wid-prj.cx)*prj.nearz/prj.prjPlnDist;
-	top=(double)(    prj.cy)*prj.nearz/prj.prjPlnDist;
-	btm=(double)(prj.cy-hei)*prj.nearz/prj.prjPlnDist;
+	if(0!=FsVrIsActive() && 0==FsVrIsMenuPassActive())
+	{
+		// Asymmetric per-eye frustum from the VR runtime, re-built at the
+		// near/far range requested by the caller so that the depth-slicing
+		// draw passes keep working in VR.
+		FsVrGetEyeViewport(FsGetActiveSplitWindow(),xx0,yy0,wid,hei);
+		FsVrGetEyeFrustum(FsGetActiveSplitWindow(),prj.nearz,prj.farz,lft,rit,btm,top);
+	}
+	else
+	{
+		FsGetWindowViewport(xx0,yy0,wid,hei); // x0,y0 is top-left corner.  OpenGL takes bottom-left corner.
+
+		lft=(double)(   -prj.cx)*prj.nearz/prj.prjPlnDist;
+		rit=(double)(wid-prj.cx)*prj.nearz/prj.prjPlnDist;
+		top=(double)(    prj.cy)*prj.nearz/prj.prjPlnDist;
+		btm=(double)(prj.cy-hei)*prj.nearz/prj.prjPlnDist;
+	}
 
 
 
@@ -650,17 +826,83 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	// Anti-aliasing options >>
 	/*
+#ifndef __EMSCRIPTEN__
 	glEnable(GL_POINT_SMOOTH);
 	glEnable(GL_LINE_SMOOTH);
 	glEnable(GL_POLYGON_SMOOTH);
 	glHint(GL_POLYGON_SMOOTH_HINT,GL_NICEST);
+#endif
 	*/
 	// Anti-aliasing options <<
 
 
 	GLfloat projMat[16];
 	YsGLMakeFrustum(projMat,(GLfloat)lft,(GLfloat)rit,(GLfloat)btm,(GLfloat)top,(GLfloat)prj.nearz,(GLfloat)prj.farz);
-	YsGLSLSetShared3DRendererProjection(projMat);
+	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
+	{
+		GLfloat stereoProj[32];
+		if(0!=FsVrIsMenuPassActive())
+		{
+			// The menu is rendered once into a mono texture used by an XR
+			// quad layer.  Shared 3D renderers stay compiled for multiview
+			// while the session is active, so give both view slots the same
+			// normal window projection.  Feeding the two eye projections
+			// here draws aircraft-selection previews twice in the mono FBO.
+			for(int i=0; i<16; ++i)
+			{
+				stereoProj[i]=projMat[i];
+				stereoProj[16+i]=projMat[i];
+			}
+		}
+		else
+		{
+			// Single-pass stereo: the scene pass renders from the eye-0 pose
+			// (SimDrawAllScreen), so fold each eye's difference into its view of
+			// the projection array: projection[i] = P_i * V_i * inverse(V_0).
+			// V_i are the GL-convention eye-view matrices from the VR runtime;
+			// the composition happens entirely in GL space, downstream of the
+			// engine's LH->GL modelView, so no z-flip conjugation is needed.
+			YsMatrix4x4 eye0View;
+			eye0View.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+			YsMatrix4x4 eye0ViewInv=eye0View;
+			eye0ViewInv.Invert();
+
+			for(int eye=0; eye<FsVrNumEye; ++eye)
+			{
+				double eLft,eRit,eBtm,eTop;
+				FsVrGetEyeFrustum(eye,prj.nearz,prj.farz,eLft,eRit,eBtm,eTop);
+				GLfloat eyeProjMat[16];
+				YsGLMakeFrustum(eyeProjMat,(GLfloat)eLft,(GLfloat)eRit,(GLfloat)eBtm,(GLfloat)eTop,(GLfloat)prj.nearz,(GLfloat)prj.farz);
+
+				YsMatrix4x4 eyeProj;
+				eyeProj.CreateFromOpenGlCompatibleMatrix(eyeProjMat);
+				YsMatrix4x4 eyeView;
+				eyeView.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
+
+				YsMatrix4x4 combined=eyeProj*eyeView*eye0ViewInv;
+				GLfloat combinedMat[16];
+				combined.GetOpenGlCompatibleMatrix(combinedMat);
+				for(int i=0; i<16; ++i)
+				{
+					stereoProj[eye*16+i]=combinedMat[i];
+				}
+			}
+		}
+		YsGLSLSetShared3DRendererProjectionStereo(stereoProj);
+		if(0==FsVrIsMenuPassActive())
+		{
+			// Cache for the VR HUD-quad composite (SimDrawAllScreen), which must
+			// use the exact same per-view projection array as the scene pass.
+			for(int i=0; i<32; ++i)
+			{
+				fsLastSceneProjectionStereo[i]=stereoProj[i];
+			}
+		}
+	}
+	else
+	{
+		YsGLSLSetShared3DRendererProjection(projMat);
+	}
 
 	{
 		auto fsBitmapFontRenderer=YsGLSLSharedBitmapFontRenderer();
@@ -712,6 +954,369 @@ void FsSet2DDrawing(void)
 #endif
 }
 
+// ---- VR single-pass-stereo HUD composite ---------------------------------
+// SimDrawAllScreen (core) drives these while VR + multiview + HUD-enable are
+// all on.  FsVrBeginHudRender/FsVrEndHudRender bracket the off-screen 2D HUD
+// pass into the two-layer multiview HUD framebuffer; FsVrDrawHudQuad then
+// composites that texture array onto a cockpit-anchored quad in the scene FBO.
+// Defined in the fssimplewindow emscripten back-end: make FsGetWindowSize
+// report the HUD texture size for the duration of the off-screen HUD pass, so
+// pixel-space HUD placement lands on the HUD texture.  (fssimplewindow stays
+// dependency-free of fsvr; only the engine, which links both, bridges them.)
+extern "C" void FsSetWindowSizeOverride(int active,int w,int h);
+
+void FsVrBeginHudRender(void)
+{
+	const float *hud=FsVrHudDataPointer();
+	GLuint hudFbo=(GLuint)hud[1];
+	int texW=(int)hud[3];
+	int texH=(int)hud[4];
+
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,hudFbo);
+	glViewport(0,0,texW,texH);
+	glClearColor(0.0f,0.0f,0.0f,0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void FsVrEndHudRender(void)
+{
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
+	// The web layer redirects a bind(0) to the active multiview scene FBO for
+	// the lifetime of the session, so this restores the scene target.
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+}
+
+void FsVrDrawHudQuad(const float corner[12])
+{
+	if(NULL==fsHudQuadRenderer)
+	{
+		return;
+	}
+
+	const float *hud=FsVrHudDataPointer();
+	GLuint hudTexArray=(GLuint)hud[2];
+
+	// Restore the scene (eye-0) viewport for the composite into the multiview
+	// framebuffer (FsVrEndHudRender left the HUD-texture-sized viewport).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetHudQuadRendererProjectionStereofv(fsHudQuadRenderer,proj);
+	YsGLSLSetHudQuadRendererModelViewfv(fsHudQuadRenderer,modelView);
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // HUD glass draws over the scene regardless of depth.
+	glDisable(GL_CULL_FACE);
+
+	YsGLSLRenderHudQuad(fsHudQuadRenderer,corner,hudTexArray);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
+// ---- VR single-pass-stereo collimated gunsight reticle -------------------
+// Draws the gun crosshair as real world-space 3D line geometry in the scene
+// FBO, rendered through each eye's OWN stereo projection (the cached scene
+// matrices), instead of baking it into the shared flat HUD texture.  Because
+// it is genuine 3D geometry far along the boresight (SimDrawAllScreen places
+// it 2000 m ahead), stereo parallax makes it read as collimated at optical
+// infinity: head translation off the boresight axis no longer shifts the
+// apparent aim point the way the fixed-distance HUD glass does.  lineVtx holds
+// 8 world-space vertices (4 line segments, GL_LINES).  Mirrors FsVrDrawHudQuad's
+// matrix + state pattern, but on the shared VariColor3D renderer (the same
+// flat 3D line renderer FsDrawLine3d uses) instead of the textured HUD-quad one.
+void FsVrDrawReticle(const float lineVtx[24],const YsColor &col)
+{
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	// Restore the scene (eye-0) viewport (the HUD off-screen pass left the
+	// HUD-texture-sized viewport; FsVrDrawHudQuad already restored it, but do
+	// not rely on draw order).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	// A collimated pipper must be full-bright regardless of range: turn fog
+	// off (it would wash a 2000 m reticle toward the fog colour).  Fog is
+	// re-established by the next frame's scene pass (FsFogOn during
+	// SimDrawScreen), and nothing fog-sensitive draws after this within the
+	// frame (the GUI quad composite uses the un-fogged HUD-quad renderer).
+	FsFogOff();
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // Collimated pipper overlays terrain, never occluded.
+	glDisable(GL_CULL_FACE);
+
+	GLfloat colBuf[8*4];
+	for(int i=0; i<8; ++i)
+	{
+		colBuf[i*4  ]=col.Rf();
+		colBuf[i*4+1]=col.Gf();
+		colBuf[i*4+2]=col.Bf();
+		colBuf[i*4+3]=1.0f;
+	}
+
+	auto *renderer=YsGLSLSharedVariColor3DRenderer();
+	YsGLSLUse3DRenderer(renderer);
+	YsGLSLDrawPrimitiveVtxColfv(renderer,GL_LINES,8,lineVtx,colBuf);
+	YsGLSLEndUse3DRenderer(renderer);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
+// ---- VR single-pass-stereo hand-held HOTAS prop draw bracket --------------
+// See fsopengl.h's doc comment.  Unlike the reticle/tint above (which draw
+// raw world-space vertices and so need the TRUE camera transform composed
+// into the shared renderer's modelview), FsVisualDnm::Draw(pos,att) is its
+// own self-contained model matrix (see fscontrol.cpp's DrawJoystick: "New
+// FsVisual::Draw assumes the viewpoint is at the origin looking straight
+// ahead") -- it overrides-and-restores the shared renderer's modelview
+// itself (ysshellextgl_gl2.cpp's Render), so this bracket only needs to
+// fix up what Render does NOT touch: the projection (in case the HUD's 2D
+// off-screen pass left an ortho projection bound) and the viewport (same
+// reason FsVrDrawHudQuad restores it), plus depth testing.
+static GLboolean fsVrHandPropWasDepthTest=GL_TRUE;
+
+void FsVrBeginHandPropDraw(void)
+{
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	fsVrHandPropWasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	glDisable(GL_DEPTH_TEST); // A hand-held prop must not be swallowed by nearer cockpit geometry (same discipline as FsVrDrawReticle).
+}
+
+void FsVrEndHandPropDraw(void)
+{
+	if(GL_FALSE!=fsVrHandPropWasDepthTest)
+	{
+		glEnable(GL_DEPTH_TEST);
+	}
+}
+
+// ---- VR single-pass-stereo in-flight-GUI-dialog composite ----------------
+// Same shape as the HUD trio above, driven by FsVrGuiDataPointer instead of
+// FsVrHudDataPointer.  FsVrSetHudRenderTarget/FsSetWindowSizeOverride are
+// reused as-is (see fsvr.h's doc comment on FsVrSetHudRenderTarget): the HUD
+// and GUI off-screen passes never run concurrently within a frame.
+void FsVrBeginGuiRender(void)
+{
+	const float *gui=FsVrGuiDataPointer();
+	GLuint guiFbo=(GLuint)gui[1];
+	int texW=(int)gui[3];
+	int texH=(int)gui[4];
+
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,guiFbo);
+	glViewport(0,0,texW,texH);
+	glClearColor(0.0f,0.0f,0.0f,0.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void FsVrEndGuiRender(void)
+{
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
+	// The web layer redirects a bind(0) to the active multiview scene FBO for
+	// the lifetime of the session, so this restores the scene target.
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+}
+
+// ---- VR main-menu off-screen pass ----------------------------------------
+// Same shape as HUD/GUI above, but driven by FsVrMenuDataPointer (the
+// main-menu state block).  The menu FBO is a plain mono RGBA 2D texture
+// (not a multiview texture-array), allocated by setupMenu in fswebxr.cpp
+// when the WebXR layers path is available.  FsVrSetHudRenderTarget /
+// FsSetWindowSizeOverride are reused as-is (same shared active/size pair
+// used for HUD and GUI -- see fsvr.h's doc comment on FsVrSetHudRenderTarget:
+// the three passes never run concurrently within a frame, so one set of
+// state variables is enough).
+// Text-input focus latch for the menu pass (menuData[6] -- see fsvr.h).
+// fsguilib's fsGuiTextBoxFocusDrawnHook fires whenever a text box draws
+// itself focused; latching it strictly between Begin/EndMenuRender means
+// menuData[6] reports exactly "the menu frame just rendered contains a
+// keyboard-focused text box" (the aircraft-select search box, the lobby
+// user-name box, ...).  The web layer reads it each frame to summon the
+// headset's system keyboard -- see fswebxr.cpp's text-input bridge.
+extern void (*fsGuiTextBoxFocusDrawnHook)(void);
+static int fsVrMenuTextInputPending=0;
+static void FsVrMenuTextBoxFocusDrawn(void)
+{
+	fsVrMenuTextInputPending=1;
+}
+
+void FsVrBeginMenuRender(void)
+{
+	const float *menuData=FsVrMenuDataPointer();
+	const GLuint menuFbo=(GLuint)menuData[1];
+	const int texW=(int)menuData[3];
+	const int texH=(int)menuData[4];
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,menuFbo);
+	FsVrSetMenuPassActive(1);
+	fsGuiTextBoxFocusDrawnHook=FsVrMenuTextBoxFocusDrawn;
+	fsVrMenuTextInputPending=0;
+}
+
+void FsVrEndMenuRender(void)
+{
+	FsVrSetMenuPassActive(0);
+	FsVrMenuDataPointer()[6]=(float)fsVrMenuTextInputPending;
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
+}
+
+void FsVrDrawGuiQuad(const float corner[12])
+{
+	if(NULL==fsHudQuadRenderer)
+	{
+		return;
+	}
+
+	const float *gui=FsVrGuiDataPointer();
+	GLuint guiTexArray=(GLuint)gui[2];
+
+	// Restore the scene (eye-0) viewport for the composite into the multiview
+	// framebuffer (FsVrEndGuiRender left the GUI-texture-sized viewport).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetHudQuadRendererProjectionStereofv(fsHudQuadRenderer,proj);
+	YsGLSLSetHudQuadRendererModelViewfv(fsHudQuadRenderer,modelView);
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // GUI glass draws over the scene (and over the HUD quad) regardless of depth.
+	glDisable(GL_CULL_FACE);
+
+	YsGLSLRenderHudQuad(fsHudQuadRenderer,corner,guiTexArray);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
+// ---- VR single-pass-stereo G-load blackout/redout full-field tint -------
+// Same matrix/state-save pattern as FsVrDrawReticle (world-space geometry
+// through the shared VariColor3D renderer, already stereo-projected by this
+// frame's FsSetSceneProjection), but a FILLED quad (GL_TRIANGLE_FAN, like
+// fsgroundskygl2.0.cpp's GL_TRIANGLE_STRIP/GL_TRIANGLES precedent on this
+// same renderer) instead of GL_LINES, since this is a solid colour overlay,
+// not line art.
+void FsVrDrawFullScreenTint(const float corner[12],float r,float g,float b,float alpha)
+{
+	if(alpha<=0.0f)
+	{
+		return; // Early-out: no GPU cost / no state churn when there is no G-load effect active.
+	}
+
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	// Restore the scene (eye-0) viewport (the HUD/GUI off-screen passes leave
+	// their own texture-sized viewport bound; whichever ran last, always
+	// reset it here rather than relying on draw order).
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	// A blackout/redout tint must stay full-strength regardless of fog (same
+	// reasoning as FsVrDrawReticle -- fog is re-established next frame).
+	FsFogOff();
+
+	// Save the state we touch, restore it after so no leak into later draws.
+	GLboolean wasBlend=glIsEnabled(GL_BLEND);
+	GLboolean wasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	GLboolean wasCull=glIsEnabled(GL_CULL_FACE);
+	GLint prevBlendSrc=GL_SRC_ALPHA,prevBlendDst=GL_ONE_MINUS_SRC_ALPHA;
+	glGetIntegerv(GL_BLEND_SRC_RGB,&prevBlendSrc);
+	glGetIntegerv(GL_BLEND_DST_RGB,&prevBlendDst);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_DEPTH_TEST); // Covers everything -- scene, HUD glass, reticle -- regardless of depth.
+	glDisable(GL_CULL_FACE);
+
+	GLfloat colBuf[4*4];
+	for(int i=0; i<4; ++i)
+	{
+		colBuf[i*4  ]=r;
+		colBuf[i*4+1]=g;
+		colBuf[i*4+2]=b;
+		colBuf[i*4+3]=alpha;
+	}
+
+	auto *renderer=YsGLSLSharedVariColor3DRenderer();
+	YsGLSLUse3DRenderer(renderer);
+	YsGLSLDrawPrimitiveVtxColfv(renderer,GL_TRIANGLE_FAN,4,corner,colBuf);
+	YsGLSLEndUse3DRenderer(renderer);
+
+	if(GL_FALSE==wasBlend){ glDisable(GL_BLEND); }
+	glBlendFunc((GLenum)prevBlendSrc,(GLenum)prevBlendDst);
+	if(GL_FALSE!=wasDepthTest){ glEnable(GL_DEPTH_TEST); }
+	if(GL_FALSE!=wasCull){ glEnable(GL_CULL_FACE); }
+}
+
 void FsBeginDrawShadow(void)  // Set polygon offset -1,-1 and enable.
 {
 	glEnable(GL_POLYGON_OFFSET_FILL);
@@ -748,6 +1353,12 @@ void FsSetCameraPosition(const YsVec3 &pos,const YsAtt3 &att,YSBOOL zClear)
 	GLfloat modelViewMat[16];
 	tfm.GetOpenGlCompatibleMatrix(modelViewMat);
 	YsGLSLSetShared3DRendererModelView(modelViewMat);
+
+	// Cache the world->eye0 modelView for the VR HUD-quad composite.
+	for(int i=0; i<16; ++i)
+	{
+		fsLastSceneModelView[i]=modelViewMat[i];
+	}
 
 	auto fsBitmapFontRenderer=YsGLSLSharedBitmapFontRenderer();
 	YsGLSLUseBitmapFontRenderer(fsBitmapFontRenderer);
@@ -1084,6 +1695,8 @@ void FsDrawTitleBmp(const YsBitmap &bmp,YSBOOL tile)
 	glBindTexture(GL_TEXTURE_2D,texId[0]);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);  // NPOT-safe for WebGL1
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,bmpWid,bmpHei,0,GL_RGBA,GL_UNSIGNED_BYTE,bmpPtr);
 
 	if(tile==YSTRUE)
@@ -1126,7 +1739,28 @@ void FsDrawBmp(const YsBitmap &bmp,int x,int y)
 	YsGLSLBitmapRenderer *renderer=YsGLSLSharedBitmapRenderer();
 	YsGLSLUseBitmapRenderer(renderer);
 
+	// The bitmap (system-font text) carries alpha; without blending it
+	// shows up as a solid rectangle.
+	const GLboolean blendWasEnabled=glIsEnabled(GL_BLEND);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+
+	// 2D overlay text must draw unconditionally.  The cockpit/canopy pass
+	// leaves the stencil test in a state that can reject these pixels
+	// (driver-dependent), which blanked the messages.
+	const GLboolean stencilWasEnabled=glIsEnabled(GL_STENCIL_TEST);
+	glDisable(GL_STENCIL_TEST);
+
 	YsGLSLRenderRGBABitmap2D(renderer,x,y,YSGLSL_HALIGN_LEFT,YSGLSL_VALIGN_TOP,bmpWid,bmpHei,rgba);
+
+	if(GL_TRUE==stencilWasEnabled)
+	{
+		glEnable(GL_STENCIL_TEST);
+	}
+	if(GL_TRUE!=blendWasEnabled)
+	{
+		glDisable(GL_BLEND);
+	}
 
 	YsGLSLEndUseBitmapRenderer(renderer);
 
@@ -1222,4 +1856,3 @@ void FsGraphicsTest(int i)
 	YsGLSLRenderTexture2D(bitmapRenderer,0,0,YSGLSL_HALIGN_LEFT,YSGLSL_VALIGN_TOP,256,256,i);
 	YsGLSLEndUseBitmapRenderer(bitmapRenderer);
 }
-

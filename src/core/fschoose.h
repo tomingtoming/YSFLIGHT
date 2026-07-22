@@ -229,6 +229,19 @@ public:
 
 	int nextActionCode;
 
+	// Debounced search: rebuilding the aircraft list on every keystroke makes
+	// typing feel sluggish with thousands of add-on aircraft installed (the
+	// rebuild also re-populates the list box).  OnTextBoxChange only records a
+	// request; Interval() performs it once the text has been stable for a moment.
+	YSBOOL airListResetPending;
+	unsigned int airListResetRequestClock;
+
+	// Preview pre-warm: remembers which aircraft's visual has already been
+	// requested during the quiet window between a selection change and the
+	// debounced preview draw in Show(), so that the (potentially expensive)
+	// .dnm parse runs on its own frame instead of on the first preview frame.
+	YsString airVisualPrewarmedFor;
+
 	FsGuiChooseAircraft();
 	void Initialize(void);
 	virtual void OnButtonClick(FsGuiButton *btn);
@@ -240,6 +253,7 @@ public:
 	    YSBOOL plb,YSBOOL pmb,YSBOOL prb,int pmx,int pmy,
 	    FsGuiDialogItem *mouseOver);
 	virtual void OnColorPaletteChange(FsGuiColorPalette *plt);
+	virtual void Interval(void);
 
 
 	YSRESULT Create(FsWorld *world,const FsGuiChooseAircraftOption &option,int nextActionCode);

@@ -11,12 +11,14 @@ fsblackout.cpp
 fsfontrenderer.cpp
 fsconsole.cpp
 fsopengl.cpp
+fsvr.cpp
 fstexturemanager.cpp
 fswirefont_makebuf.cpp
 )
 
 set(HEADERS
 fsopengl.h
+fsvr.h
 fswirefont.h
 fsvisual.h
 fsblackout.h

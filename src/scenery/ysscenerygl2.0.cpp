@@ -1720,7 +1720,13 @@ void YsElevationGrid::DrawFastFillOnly(const double &plgColorScale)
 			YsGLSLSet3DRendererSpecularColor(renderer,savedSpecular);
 
 			YsGLSLEndUse3DRenderer(renderer);
+#ifndef __EMSCRIPTEN__
+			// Fixed-function relic; GL_TEXTURE_2D is a texture target, not a
+			// valid GLES2/WebGL capability, so glDisable(GL_TEXTURE_2D) raises
+			// GL_INVALID_ENUM ("disable: invalid capability") there.  Texturing
+			// is driven entirely by the GLSL renderer, so this is a no-op.
 			glDisable(GL_TEXTURE_2D);
+#endif
 		}
 		else
 		{

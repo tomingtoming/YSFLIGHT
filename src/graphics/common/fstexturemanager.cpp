@@ -136,6 +136,15 @@ YSRESULT FsCommonTexture::ReadyShadowMap(void)
 			return YSERR;
 		}
 	}
+	for(YSSIZE_T idx=0; idx<MAX_NUM_SHADOWMAP; ++idx)
+	{
+		// The maps are still bound on sampler units 5.. from the previous
+		// frame (FsSimulation::SimDrawShadowMap binds map idx to unit 5+idx).
+		// Rendering into a texture that is also bound for sampling is a
+		// feedback loop; WebGL refuses such draws, so unbind them all before
+		// the shadow-map render pass starts.
+		texMan.Unbind((int)(5+idx));
+	}
 	return YSOK;
 }
 
