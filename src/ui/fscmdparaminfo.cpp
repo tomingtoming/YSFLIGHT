@@ -182,12 +182,12 @@ YSRESULT FsCommandParameter::RecognizeCommandParameter(int ac,char *av[])
 			executionMode=6;
 			airName.Set(strlen(av[i+1])+1,av[i+1]);
 			fldName.Set(strlen(av[i+2])+1,av[i+2]);
-			interceptMissionInfo.attackerInfo.allowStealth=(YSBOOL)atoi(av[3]);
-			interceptMissionInfo.attackerInfo.allowAirCover=(YSBOOL)atoi(av[4]);
-			interceptMissionInfo.attackerInfo.allowHeavyBomber=(YSBOOL)atoi(av[5]);
-			interceptMissionInfo.attackerInfo.allowBomb=(YSBOOL)atoi(av[6]);
-			interceptMissionInfo.attackerInfo.maxNumAttacker=YsBound(atoi(av[7]),1,5);
-			interceptMissionInfo.numWingman=YsBound(atoi(av[8]),0,2);
+			interceptMissionInfo.attackerInfo.allowStealth=(YSBOOL)atoi(av[i+3]);
+			interceptMissionInfo.attackerInfo.allowAirCover=(YSBOOL)atoi(av[i+4]);
+			interceptMissionInfo.attackerInfo.allowHeavyBomber=(YSBOOL)atoi(av[i+5]);
+			interceptMissionInfo.attackerInfo.allowBomb=(YSBOOL)atoi(av[i+6]);
+			interceptMissionInfo.attackerInfo.maxNumAttacker=YsBound(atoi(av[i+7]),1,5);
+			interceptMissionInfo.numWingman=YsBound(atoi(av[i+8]),0,2);
 			i+=9;
 		}
 		else if(0==cmd.STRCMP("-setdefaultconfig"))
