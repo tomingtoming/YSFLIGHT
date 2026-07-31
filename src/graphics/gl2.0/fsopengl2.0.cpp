@@ -1334,6 +1334,10 @@ void FsSetCameraPosition(const YsVec3 &pos,const YsAtt3 &att,YSBOOL zClear)
 	FsOpenGlShowError("FsSetCameraPosition In");
 #endif
 
+	glEnable(GL_DEPTH_TEST); // A scene start must not depend on who drew last: overlay
+	                         // passes (HUD glass, sky gradation, ...) leave the depth
+	                         // test disabled, and the network-standby aircraft chooser
+	                         // then rendered its 3D preview inside-out (painter's order).
 	glDepthFunc(GL_LEQUAL);
 	glDepthMask(GL_TRUE);
 
