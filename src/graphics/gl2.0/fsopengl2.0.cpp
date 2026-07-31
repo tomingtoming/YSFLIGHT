@@ -729,6 +729,8 @@ void FsSetCameraPosition(const YsVec3 &pos,const YsAtt3 &att,YSBOOL zClear)
 	FsOpenGlShowError("FsSetCameraPosition In");
 #endif
 
+	glEnable(GL_DEPTH_TEST); // Not guaranteed on: overlay passes (HUD glass, sky
+	                         // gradation, ...) disable the depth test and do not restore it.
 	glDepthFunc(GL_LEQUAL);
 	glDepthMask(GL_TRUE);
 
