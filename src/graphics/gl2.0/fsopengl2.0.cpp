@@ -329,9 +329,18 @@ void FsClearScreenAndZBuffer(const YsColor &clearColor)
 {
 	if(0!=FsVrIsActive())
 	{
-		// Per-eye clear.  The VR viewport is bottom-left origin already.
 		int x0,y0,wid,hei;
-		FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		if(0!=FsVrHudRenderTargetActive())
+		{
+			// Off-screen pass (menu, HUD, or GUI): clear the full off-screen texture.
+			FsVrGetHudRenderSize(&wid,&hei);
+			x0=0; y0=0;
+		}
+		else
+		{
+			// Per-eye clear for the main scene.
+			FsVrGetEyeViewport(FsGetActiveSplitWindow(),x0,y0,wid,hei);
+		}
 		glScissor(x0,y0,wid,hei);
 		glEnable(GL_SCISSOR_TEST);
 	}
@@ -791,7 +800,7 @@ void FsSetSceneProjection(const class FsProjection &prj)
 
 	double lft,rit,top,btm;
 
-	if(0!=FsVrIsActive())
+	if(0!=FsVrIsActive() && 0==FsVrIsMenuPassActive())
 	{
 		// Asymmetric per-eye frustum from the VR runtime, re-built at the
 		// near/far range requested by the caller so that the depth-slicing
@@ -831,44 +840,63 @@ void FsSetSceneProjection(const class FsProjection &prj)
 	YsGLMakeFrustum(projMat,(GLfloat)lft,(GLfloat)rit,(GLfloat)btm,(GLfloat)top,(GLfloat)prj.nearz,(GLfloat)prj.farz);
 	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
 	{
-		// Single-pass stereo: the scene pass renders from the eye-0 pose
-		// (SimDrawAllScreen), so fold each eye's difference into its view of
-		// the projection array: projection[i] = P_i * V_i * inverse(V_0).
-		// V_i are the GL-convention eye-view matrices from the VR runtime;
-		// the composition happens entirely in GL space, downstream of the
-		// engine's LH->GL modelView, so no z-flip conjugation is needed.
-		YsMatrix4x4 eye0View;
-		eye0View.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
-		YsMatrix4x4 eye0ViewInv=eye0View;
-		eye0ViewInv.Invert();
-
 		GLfloat stereoProj[32];
-		for(int eye=0; eye<FsVrNumEye; ++eye)
+		if(0!=FsVrIsMenuPassActive())
 		{
-			double eLft,eRit,eBtm,eTop;
-			FsVrGetEyeFrustum(eye,prj.nearz,prj.farz,eLft,eRit,eBtm,eTop);
-			GLfloat eyeProjMat[16];
-			YsGLMakeFrustum(eyeProjMat,(GLfloat)eLft,(GLfloat)eRit,(GLfloat)eBtm,(GLfloat)eTop,(GLfloat)prj.nearz,(GLfloat)prj.farz);
-
-			YsMatrix4x4 eyeProj;
-			eyeProj.CreateFromOpenGlCompatibleMatrix(eyeProjMat);
-			YsMatrix4x4 eyeView;
-			eyeView.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
-
-			YsMatrix4x4 combined=eyeProj*eyeView*eye0ViewInv;
-			GLfloat combinedMat[16];
-			combined.GetOpenGlCompatibleMatrix(combinedMat);
+			// The menu is rendered once into a mono texture used by an XR
+			// quad layer.  Shared 3D renderers stay compiled for multiview
+			// while the session is active, so give both view slots the same
+			// normal window projection.  Feeding the two eye projections
+			// here draws aircraft-selection previews twice in the mono FBO.
 			for(int i=0; i<16; ++i)
 			{
-				stereoProj[eye*16+i]=combinedMat[i];
+				stereoProj[i]=projMat[i];
+				stereoProj[16+i]=projMat[i];
+			}
+		}
+		else
+		{
+			// Single-pass stereo: the scene pass renders from the eye-0 pose
+			// (SimDrawAllScreen), so fold each eye's difference into its view of
+			// the projection array: projection[i] = P_i * V_i * inverse(V_0).
+			// V_i are the GL-convention eye-view matrices from the VR runtime;
+			// the composition happens entirely in GL space, downstream of the
+			// engine's LH->GL modelView, so no z-flip conjugation is needed.
+			YsMatrix4x4 eye0View;
+			eye0View.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+			YsMatrix4x4 eye0ViewInv=eye0View;
+			eye0ViewInv.Invert();
+
+			for(int eye=0; eye<FsVrNumEye; ++eye)
+			{
+				double eLft,eRit,eBtm,eTop;
+				FsVrGetEyeFrustum(eye,prj.nearz,prj.farz,eLft,eRit,eBtm,eTop);
+				GLfloat eyeProjMat[16];
+				YsGLMakeFrustum(eyeProjMat,(GLfloat)eLft,(GLfloat)eRit,(GLfloat)eBtm,(GLfloat)eTop,(GLfloat)prj.nearz,(GLfloat)prj.farz);
+
+				YsMatrix4x4 eyeProj;
+				eyeProj.CreateFromOpenGlCompatibleMatrix(eyeProjMat);
+				YsMatrix4x4 eyeView;
+				eyeView.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(eye));
+
+				YsMatrix4x4 combined=eyeProj*eyeView*eye0ViewInv;
+				GLfloat combinedMat[16];
+				combined.GetOpenGlCompatibleMatrix(combinedMat);
+				for(int i=0; i<16; ++i)
+				{
+					stereoProj[eye*16+i]=combinedMat[i];
+				}
 			}
 		}
 		YsGLSLSetShared3DRendererProjectionStereo(stereoProj);
-		// Cache for the VR HUD-quad composite (SimDrawAllScreen), which must
-		// use the exact same per-view projection array as the scene pass.
-		for(int i=0; i<32; ++i)
+		if(0==FsVrIsMenuPassActive())
 		{
-			fsLastSceneProjectionStereo[i]=stereoProj[i];
+			// Cache for the VR HUD-quad composite (SimDrawAllScreen), which must
+			// use the exact same per-view projection array as the scene pass.
+			for(int i=0; i<32; ++i)
+			{
+				fsLastSceneProjectionStereo[i]=stereoProj[i];
+			}
 		}
 	}
 	else
@@ -1136,6 +1164,52 @@ void FsVrEndGuiRender(void)
 	glBindFramebuffer(GL_FRAMEBUFFER,0);
 }
 
+// ---- VR main-menu off-screen pass ----------------------------------------
+// Same shape as HUD/GUI above, but driven by FsVrMenuDataPointer (the
+// main-menu state block).  The menu FBO is a plain mono RGBA 2D texture
+// (not a multiview texture-array), allocated by setupMenu in fswebxr.cpp
+// when the WebXR layers path is available.  FsVrSetHudRenderTarget /
+// FsSetWindowSizeOverride are reused as-is (same shared active/size pair
+// used for HUD and GUI -- see fsvr.h's doc comment on FsVrSetHudRenderTarget:
+// the three passes never run concurrently within a frame, so one set of
+// state variables is enough).
+// Text-input focus latch for the menu pass (menuData[6] -- see fsvr.h).
+// fsguilib's fsGuiTextBoxFocusDrawnHook fires whenever a text box draws
+// itself focused; latching it strictly between Begin/EndMenuRender means
+// menuData[6] reports exactly "the menu frame just rendered contains a
+// keyboard-focused text box" (the aircraft-select search box, the lobby
+// user-name box, ...).  The web layer reads it each frame to summon the
+// headset's system keyboard -- see fswebxr.cpp's text-input bridge.
+extern void (*fsGuiTextBoxFocusDrawnHook)(void);
+static int fsVrMenuTextInputPending=0;
+static void FsVrMenuTextBoxFocusDrawn(void)
+{
+	fsVrMenuTextInputPending=1;
+}
+
+void FsVrBeginMenuRender(void)
+{
+	const float *menuData=FsVrMenuDataPointer();
+	const GLuint menuFbo=(GLuint)menuData[1];
+	const int texW=(int)menuData[3];
+	const int texH=(int)menuData[4];
+	FsVrSetHudRenderTarget(1,texW,texH);
+	FsSetWindowSizeOverride(1,texW,texH);
+	glBindFramebuffer(GL_FRAMEBUFFER,menuFbo);
+	FsVrSetMenuPassActive(1);
+	fsGuiTextBoxFocusDrawnHook=FsVrMenuTextBoxFocusDrawn;
+	fsVrMenuTextInputPending=0;
+}
+
+void FsVrEndMenuRender(void)
+{
+	FsVrSetMenuPassActive(0);
+	FsVrMenuDataPointer()[6]=(float)fsVrMenuTextInputPending;
+	glBindFramebuffer(GL_FRAMEBUFFER,0);
+	FsVrSetHudRenderTarget(0,0,0);
+	FsSetWindowSizeOverride(0,0,0);
+}
+
 void FsVrDrawGuiQuad(const float corner[12])
 {
 	if(NULL==fsHudQuadRenderer)
@@ -1260,6 +1334,10 @@ void FsSetCameraPosition(const YsVec3 &pos,const YsAtt3 &att,YSBOOL zClear)
 	FsOpenGlShowError("FsSetCameraPosition In");
 #endif
 
+	glEnable(GL_DEPTH_TEST); // A scene start must not depend on who drew last: overlay
+	                         // passes (HUD glass, sky gradation, ...) leave the depth
+	                         // test disabled, and the network-standby aircraft chooser
+	                         // then rendered its 3D preview inside-out (painter's order).
 	glDepthFunc(GL_LEQUAL);
 	glDepthMask(GL_TRUE);
 
@@ -1782,4 +1860,3 @@ void FsGraphicsTest(int i)
 	YsGLSLRenderTexture2D(bitmapRenderer,0,0,YSGLSL_HALIGN_LEFT,YSGLSL_VALIGN_TOP,256,256,i);
 	YsGLSLEndUseBitmapRenderer(bitmapRenderer);
 }
-

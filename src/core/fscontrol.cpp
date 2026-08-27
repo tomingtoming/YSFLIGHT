@@ -831,6 +831,19 @@ void FsFlightControl::ApplyVrControlOverride(void)
 		ctlElevator=YsBound((double)ctlData[2],-1.0,1.0);
 		ctlRudder=YsBound((double)ctlData[3],-1.0,1.0);
 	}
+	else if(0.5f<ctlData[8]) // Stick was grabbed before: spring to neutral.
+	{
+		// See fsvr.h's [8] stickEverGrabbed doc comment: a released VR stick
+		// must read as CENTERED, every frame.  ctlAileron & co. are stateful
+		// members, so without this the last grabbed-frame deflection stays in
+		// force after release (the writer's release-edge zeros land on the
+		// same frame [0] flips to 0, so the grabbed branch never consumes
+		// them), and any later mouse-as-joystick change (e.g. the VR menu's
+		// synthetic ray-to-mouse events) would steer the plane too.
+		ctlAileron=0.0;
+		ctlElevator=0.0;
+		ctlRudder=0.0;
+	}
 
 	// Gated on throttleEverGrabbed (not throttleGrabbed): once the VR
 	// throttle has been touched at all, its latched value is authoritative
@@ -2586,6 +2599,8 @@ FsCenterJoystick::FsCenterJoystick()
 {
 	pJoy=new FsJoystick[FsMaxNumJoystick];
 	joy=new FsJoystick[FsMaxNumJoystick];
+	vrAnchorCaptured=YSFALSE;
+	vrAnchor.LoadIdentity();
 }
 
 FsCenterJoystick::~FsCenterJoystick()
@@ -2609,6 +2624,9 @@ void FsCenterJoystick::Initialize(FsFlightControl *ctl,const FsControlAssignment
 
 	state=INITIAL;
 	this->nextActionCode=nextActionCode;
+
+	vrAnchorCaptured=YSFALSE;
+	vrAnchor.LoadIdentity();
 }
 
 void FsCenterJoystick::RunOneStep(void)
@@ -2646,6 +2664,18 @@ void FsCenterJoystick::RunOneStep(void)
 				state=OVER;
 				return;
 			}
+		}
+
+		// WebXR controllers are XRInputSource gamepads and are not exposed by
+		// the browser through the legacy joystick poll below.  The WebXR bridge
+		// therefore publishes either hand's primary trigger in the shared VR
+		// control block so the headset can truthfully follow the on-screen
+		// "PRESS ... TRIGGER TO GO" instruction.
+		if(0!=FsVrIsActive() && 0.5f<FsVrControlDataPointer()[7])
+		{
+			waitStart=time(NULL);
+			state=WAITING_FOR_RELEASE;
+			return;
 		}
 
 		for(int i=0; i<FsMaxNumJoystick; i++)
@@ -2695,6 +2725,10 @@ void FsCenterJoystick::RunOneStep(void)
 		{
 			c++;
 		}
+		if(0!=FsVrIsActive() && 0.5f<FsVrControlDataPointer()[7])
+		{
+			c++;
+		}
 		for(int i=0; i<FsMaxNumJoystick; i++)
 		{
 			FsPollJoystick(joy[i],i);
@@ -2725,6 +2759,7 @@ void FsCenterJoystick::RunOneStep(void)
 	}
 }
 
+
 void FsCenterJoystick::Draw(void) const
 {
 	if(INITIAL==state)
@@ -2745,7 +2780,81 @@ void FsCenterJoystick::Draw(void) const
 		YsAtt3 att(0.0,-YsPi/4.1,0.0);
 		att.Mul(pos,pos);
 		pos.AddY(0.2);
-		FsSetCameraPosition(pos,att,YSTRUE);
+
+		// VR: the fixed diorama camera below is world-locked, not
+		// head-locked.  Without this the whole calibration scene rode along
+		// with every head movement (only the eye-DIFFERENCE is folded into
+		// the stereo projection by FsSetSceneProjection; the head pose
+		// itself was never applied -- unlike the flight scene, whose
+		// SimDrawAllScreen folds FsVrEyeViewMatrix(0) into the view).
+		// Same recipe here: capture a yaw+position anchor from the head at
+		// entry (so the diorama appears centered in front of WHEREVER the
+		// pilot is looking at that moment -- the menu quad's anchoring
+		// behaviour), then compose per frame
+		//     view = zFlip * eyeView * anchor * zFlip * fixedView
+		// (zFlip conjugation converts the GL-space head matrices into the
+		// engine's LH convention, exactly as SimDrawAllScreen does).  The
+		// prop-placement math below stays on the ORIGINAL pos/att, so the
+		// 2D framing is exactly the VR entry framing.
+		YsVec3 camPos=pos;
+		YsAtt3 camAtt=att;
+		if(0!=FsVrIsActive())
+		{
+			YsMatrix4x4 eyeTfm;
+			eyeTfm.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+			if(YSTRUE!=vrAnchorCaptured)
+			{
+				vrAnchor.LoadIdentity();
+				YsMatrix4x4 headTfm=eyeTfm;
+				if(YSOK==headTfm.Invert())
+				{
+					// Head pose in the GL reference space: keep position and
+					// yaw, drop pitch/roll (a tilted head at entry must not
+					// tilt the world).
+					const YsVec3 headPos=headTfm*YsOrigin();
+					YsVec3 fwd;
+					headTfm.Mul(fwd,-YsZVec(),0.0); // GL forward is -Z
+					fwd.SetY(0.0);
+					if(YSOK!=fwd.Normalize())
+					{
+						fwd=-YsZVec(); // looking straight up/down: keep reference yaw
+					}
+					const YsVec3 right=fwd^YsYVec();
+					const float anchorGl[16]=
+					{
+						(float)right.x(),(float)right.y(),(float)right.z(),0.0f,
+						0.0f,1.0f,0.0f,0.0f,
+						(float)-fwd.x(),(float)-fwd.y(),(float)-fwd.z(),0.0f,
+						(float)headPos.x(),(float)headPos.y(),(float)headPos.z(),1.0f
+					};
+					vrAnchor.CreateFromOpenGlCompatibleMatrix(anchorGl);
+				}
+				vrAnchorCaptured=YSTRUE;
+			}
+
+			// Engine-space view matrix of the fixed camera: the same
+			// construction FsSetCameraPosition performs, minus its GL z-flip.
+			YsMatrix4x4 viewMat;
+			viewMat.RotateXY(-att.b());
+			viewMat.RotateZY(-att.p());
+			viewMat.RotateXZ(-att.h());
+			viewMat.Translate(-pos);
+
+			YsMatrix4x4 zFlip;
+			zFlip.Scale(1.0,1.0,-1.0);
+			viewMat=zFlip*eyeTfm*vrAnchor*zFlip*viewMat;
+
+			YsMatrix4x4 camToWorld=viewMat;
+			if(YSOK==camToWorld.Invert())
+			{
+				YsVec3 fwd,up;
+				camToWorld.Mul(fwd,YsZVec(),0.0);
+				camToWorld.Mul(up,YsYVec(),0.0);
+				camPos=camToWorld*YsOrigin();
+				camAtt.SetTwoVector(fwd,up);
+			}
+		}
+		FsSetCameraPosition(camPos,camAtt,YSTRUE);
 		FsSetDirectionalLight(YsVec3(0.0,0.2,-1.0),YsYVec(),FSDAYLIGHT);
 
 
@@ -2840,4 +2949,3 @@ void FsCenterJoystick::Draw(void) const
 	{
 	}
 }
-

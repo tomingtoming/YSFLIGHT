@@ -11,6 +11,7 @@
 #include <fsguifiledialog.h>
 
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 
 #include "fsconfig.h"
 #include "fsoption.h"
@@ -2548,6 +2549,26 @@ void FsRunLoop::DrawMenu(void) const
 		return;
 	}
 
+	const int vrActive=FsVrIsActive();
+	if(0!=vrActive)
+	{
+		const float *menuData=FsVrMenuDataPointer();
+		if(0.0f==menuData[0])
+		{
+			// Menu FBO was never allocated.  This only happens in environments
+			// that cannot create the menu quad at all (no WebXR layers /
+			// multiview support -- setupMenu is gated on vr.mvLayer and runs
+			// synchronously inside vr.enter() before FsVrIsActive goes up, so
+			// in the normal path this branch is unreachable).  Deliberately do
+			// NOT call FsVrMarkSimDrawn here: let the watchdog end the session
+			// after ~100 silent frames so the user falls back to the 2D page
+			// instead of being trapped in a live black-void session.
+			return;
+		}
+		FsVrBeginMenuRender();
+	}
+
+	// ---- Drawing body (shared between VR and 2D path) ----
 	FsClearScreenAndZBuffer(YsGrayScale(0.25));
 	FsSet2DDrawing();
 	if((nullptr==mainCanvas || YSTRUE!=mainCanvas->ShowConsole()) &&
@@ -2566,7 +2587,7 @@ void FsRunLoop::DrawMenu(void) const
 	if(world->SimulationIsPrepared()!=YSTRUE)
 	{
 		if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-		   newFltMsgBmp.GetWidth()>0 && 
+		   newFltMsgBmp.GetWidth()>0 &&
 		   newFltMsgBmp.GetHeight()>0)
 		{
 			FsDrawBmp(newFltMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2577,7 +2598,7 @@ void FsRunLoop::DrawMenu(void) const
 		if(YSTRUE==world->PlayerPlaneIsReady() || YSTRUE==world->PlayerGroundIsReady())
 		{
 			if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-			   simFlyMsgBmp.GetWidth()>0 && 
+			   simFlyMsgBmp.GetWidth()>0 &&
 			   simFlyMsgBmp.GetHeight()>0)
 			{
 				FsDrawBmp(simFlyMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2586,7 +2607,7 @@ void FsRunLoop::DrawMenu(void) const
 		else
 		{
 			if(0==strcmp(FsOption::GetLanguageString(),FsJapaneseLanguageCode) &&
-			   simRepMsgBmp.GetWidth()>0 && 
+			   simRepMsgBmp.GetWidth()>0 &&
 			   simRepMsgBmp.GetHeight()>0)
 			{
 				FsDrawBmp(simRepMsgBmp,0,hei/2+fsAsciiRenderer.GetFontHeight());
@@ -2599,6 +2620,16 @@ void FsRunLoop::DrawMenu(void) const
 		mainCanvas->Show();
 		mainCanvas->SetNeedRedraw(YSFALSE);
 	}
+	// ---- End drawing body ----
+
+	if(0!=vrActive)
+	{
+		FsVrEndMenuRender();
+		FsVrMarkSimDrawn();
+		FsVrMenuDataPointer()[5]=1.0f; // signal web layer: menu was drawn this frame
+		return; // Do NOT call FsSwapBuffers in VR
+	}
+
 	FsSwapBuffers();
 }
 
@@ -2639,6 +2670,17 @@ YSBOOL FsRunLoop::NeedRedraw(void) const
 		switch(runModeStack.GetEnd().runMode)
 		{
 		case YSRUNMODE_MENU:
+			if(0!=FsVrIsActive())
+			{
+				// VR: the menu is presented on an XRQuadLayer whose swapchain
+				// needs a fresh frame every vsync, and DrawMenu's menuDrawn
+				// flag doubles as the quad's per-frame visibility signal (and
+				// feeds the session watchdog).  The 2D redraw throttle below
+				// would starve all three whenever the menu is idle -- the
+				// on-device symptom was the menu quad flickering in and out
+				// as ray movement (synthetic mouse) toggled NeedRedraw.
+				return YSTRUE;
+			}
 			if((nullptr!=mainCanvas && YSTRUE==mainCanvas->NeedRedraw()) ||
 			   YSTRUE==FsCheckWindowExposure() ||
 			   YSTRUE==needRedraw)

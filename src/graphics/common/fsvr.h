@@ -42,7 +42,24 @@
 //                              for the rest of the session -- tells the
 //                              reader that [5] is a real, live-supplied
 //                              throttle value, as opposed to never touched)
-//   [7..15] reserved, always 0
+//   [7]  confirmTriggerPressed (0 or 1; either tracked hand's primary XR
+//                               trigger is currently pressed). Used by the
+//                               pre-flight CENTER JOYSTICK confirmation,
+//                               whose normal joystick poll cannot see WebXR
+//                               XRInputSource gamepads.
+//   [8]  stickEverGrabbed     (0 or 1; once set to 1 by the writer, stays 1
+//                              for the rest of the session -- the stick
+//                              counterpart of [6].  While [0] is 0 and this
+//                              is 1, the reader CENTERS aileron/elevator/
+//                              rudder every frame, like a released
+//                              spring-loaded stick.  Without it, releasing
+//                              the grab left the last held deflection frozen
+//                              in FsFlightControl -- the release-edge zero
+//                              write and the [0]->0 flip land on the same
+//                              frame, so the zeros were never consumed --
+//                              and any stale mouse-as-joystick position
+//                              could steer the plane after release.)
+//   [9..15] reserved, always 0
 
 // Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
 //   A VR controller runtime (WebXR in ysflight-web) writes each grabbed
@@ -254,6 +271,39 @@ extern "C"
 	const char *FsVrGuiMenuPointer(void);
 	int FsVrGuiMenuLength(void);
 	int FsVrGuiMenuVersion(void);
+
+	/*! Main-menu-in-VR state block (8 floats).
+	    Written by the web layer (setupMenu) on session start; read by
+	    fsrunloop.cpp::DrawMenu when VR is active.
+	      [0] enable    (0/1; web layer sets to 1 when FBO is ready)
+	      [1] menuFbo   (GL framebuffer name)
+	      [2] menuTex   (GL texture name)
+	      [3] texWidth
+	      [4] texHeight
+	      [5] menuDrawn (0/1; ENGINE writes 1 each frame it rendered the menu
+	                     into the FBO; web layer resets to 0 after reading)
+	      [6] textInput (0/1; ENGINE writes 1 when the menu frame it just
+	                     rendered contains a keyboard-focused text box --
+	                     latched via fsguilib's fsGuiTextBoxFocusDrawnHook in
+	                     FsVrBegin/EndMenuRender, fsopengl2.0.cpp.  Read by
+	                     the web layer's text-input bridge to summon the
+	                     headset's system keyboard)
+	      [7] reserved (0) */
+	float *FsVrMenuDataPointer(void);
+
+	/*! Raised by fsrunloop.cpp::DrawMenu while it is rendering into the
+	    menu FBO; read by fsopengl2.0.cpp to redirect the viewport/scissor
+	    machinery to the full menu-texture dimensions instead of the eye
+	    viewport. Cleared by the same DrawMenu call after the pass ends. */
+	void FsVrSetMenuPassActive(int active);
+	int  FsVrIsMenuPassActive(void);
+
+	/*! Begin/end the menu off-screen pass.  Called by fsrunloop.cpp::DrawMenu
+	    when FsVrIsActive and the menu block is enabled.  Redirects GL
+	    framebuffer + viewport machinery to the menu FBO for the duration of
+	    the menu draw, then restores the scene (session) framebuffer. */
+	void FsVrBeginMenuRender(void);
+	void FsVrEndMenuRender(void);
 
 	/*! Aircraft-state block (8 floats) for the VR radial function-dial's live
 	    readouts (RIGHT_DIAL/LEFT_DIAL in fswebxr.cpp): the dial shows the

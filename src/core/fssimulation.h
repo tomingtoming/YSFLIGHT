@@ -990,9 +990,13 @@ protected:
 	void SimDrawContainer(const ActualViewMode &actualViewMode) const;
 	void SimDrawCrossDesignator(void) const;
 
-	void SimDrawGunAim(void) const;
+	// drawViewMode/sizeMarksInViewFrame: NULL/YSFALSE (flat play) sizes the
+	// aim marks in the player's own frame as always; the VR path passes the
+	// eye pose so the marks share the designator rings' sizing frame -- see
+	// SimDrawGunAim's comment.
+	void SimDrawGunAim(const ActualViewMode *drawViewMode=NULL) const;
 	YSRESULT SimCalculateGunAim(const FsAirplane *&target,YsVec3 &aim) const;
-	void SimDrawBombingAim(const ActualViewMode &actualViewMode) const;
+	void SimDrawBombingAim(const ActualViewMode &actualViewMode,YSBOOL sizeMarksInViewFrame=YSFALSE) const;
 
 	void SimBlastSound(YSBOOL demoMode);
 

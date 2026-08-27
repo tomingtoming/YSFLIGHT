@@ -853,6 +853,48 @@ YSBOOL FsLazyWindowApplication::StepByStepInitialization(void)
 					}
 				}
 			}
+			else if(FsCommandParameter::EXEMODE_LANDINGPRACTICE==fscp.executionMode)
+			{
+				// fsmain -landingpractice LEVEL AIRCRAFT [FIELD]
+				// The level table MIRRORS the menu's switch in fsmenu_sim.cpp
+				// (FsGuiMainCanvas::Sim_LandingPractice_OptionSelected) — keep
+				// the two in sync.  Same call sequence as the menu: set up,
+				// then show the traffic-pattern info screen (which takes off
+				// on Space/click).
+				static const struct
+				{
+					FSTRAFFICPATTERNLEG leg;
+					double crossWind;
+					YSBOOL lowCloud,lowVisibility;
+				} lvTab[15]=
+				{
+					{FSLEG_FINAL,0.0,YSFALSE,YSFALSE},  // Lv1
+					{FSLEG_FINAL,2.5,YSFALSE,YSFALSE},  // Lv2
+					{FSLEG_DOG,  0.0,YSFALSE,YSFALSE},  // Lv3
+					{FSLEG_BASE, 2.5,YSFALSE,YSFALSE},  // Lv4
+					{FSLEG_BASE, 5.0,YSFALSE,YSFALSE},  // Lv5
+					{FSLEG_BASE, 7.5,YSFALSE,YSFALSE},  // Lv6
+					{FSLEG_FINAL,0.0,YSTRUE ,YSFALSE},  // Lv7
+					{FSLEG_DOG,  0.0,YSTRUE ,YSFALSE},  // Lv8
+					{FSLEG_BASE, 0.0,YSTRUE ,YSFALSE},  // Lv9
+					{FSLEG_BASE, 2.5,YSTRUE ,YSFALSE},  // Lv10
+					{FSLEG_BASE, 5.0,YSTRUE ,YSFALSE},  // Lv11
+					{FSLEG_FINAL,0.0,YSFALSE,YSTRUE },  // Lv12
+					{FSLEG_BASE, 0.0,YSFALSE,YSTRUE },  // Lv13
+					{FSLEG_BASE, 5.0,YSFALSE,YSTRUE },  // Lv14
+					{FSLEG_BASE, 7.5,YSTRUE ,YSTRUE },  // Lv15
+				};
+				const int lv=YsBound(fscp.landingPracticeLevel,0,14);
+				YSBOOL leftTraffic;
+				if(YSOK==fsRunLoop.SetUpLandingPracticeMode(
+				    fscp.fldName,fscp.airName,leftTraffic,
+				    lvTab[lv].leg,lvTab[lv].crossWind,lvTab[lv].lowCloud,lvTab[lv].lowVisibility))
+				{
+					YsVec3 wind(lvTab[lv].crossWind,0.0,0.0);
+					fsRunLoop.StartShowLandingPracticeInfoMode(
+					    leftTraffic,lvTab[lv].leg,wind,lvTab[lv].lowCloud,lvTab[lv].lowVisibility);
+				}
+			}
 			else if(fscp.executionMode==100)
 			{
 				if(world->Load(fscp.yfsFilename)==YSOK && world->PlayerPlaneIsReady()!=YSTRUE)

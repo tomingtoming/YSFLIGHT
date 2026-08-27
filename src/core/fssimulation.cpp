@@ -124,6 +124,7 @@ void FsHasInFlightDialog::SetCurrentInFlightDialog(FsGuiInFlightDialog *dlg)
 	}
 }
 
+
 FsGuiInFlightDialog *FsHasInFlightDialog::GetCurrentInFlightDialog(void) const
 {
 	return currentInFlightDlg;
@@ -2857,6 +2858,14 @@ void FsSimulation::DrawInNormalSimulationMode(FsSimulation::FSSIMULATIONSTATE si
 	case FSSIMSTATE_CENTERJOYSTICK:
 		SimClearVrGuiStateIfActive();
 		CenterJoystickDraw();
+		// This is a live, repeatedly redrawn pre-flight screen, not a stalled
+		// simulation.  Feed the WebXR presentation watchdog just like the
+		// running/check-continue paths; otherwise it ends the headset session
+		// after ~100 frames while the pilot is reading the prompt.
+		if(0!=FsVrIsActive())
+		{
+			FsVrMarkSimDrawn();
+		}
 		break;
 	case FSSIMSTATE_INITIALIZE:
 		SimClearVrGuiStateIfActive();
@@ -6551,17 +6560,36 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// drawPlayerNameAlways) and target-selection logic (which targets get
 		// marked at all) -- reusing SimDrawContainer wholesale rather than
 		// reimplementing any of it, so VR and flat can never drift on WHICH
-		// targets get a mark or what they look like. (SimDrawGunAim/
-		// SimDrawBombingAim -- the lead-gunsight and bombing-aim crosshairs --
-		// are deliberately NOT called here: a different feature from target
-		// designation, and would double up with the collimated world-space
-		// reticle below.)
+		// targets get a mark or what they look like. SimDrawGunAim/
+		// SimDrawBombingAim ride along under the same NeedToDrawGameInfo
+		// gate, in SimDrawAircraftInterior's exact order: their red gun-lead
+		// circle / bombing-impact circle are DrawCircleContainer world-space
+		// billboards at the COMPUTED aim point (SimCalculateGunAim's lead
+		// solution moves with the target, the bomb circle sits at the
+		// predicted impact), so they do NOT duplicate the fixed boresight
+		// reticle below -- flat play shows crosshair AND lead circle
+		// together, and without SimDrawGunAim a VR pilot had no lead cue to
+		// line the gun up on a moving target (the reported bug: "the circle
+		// that lines the gun up with the enemy plane never shows in VR").
+		// Both take the eye pose as their drawing frame so the aim marks
+		// size and billboard in the SAME frame as SimDrawContainer's
+		// designator rings; with the flat default (player frame) the head's
+		// off-boresight angle shrank the lead circle by its cosine relative
+		// to the designator ring around the same target (second Quest
+		// report: "the circles are different sizes and don't overlap
+		// cleanly") -- see SimDrawGunAim's comment for the geometry.
 		if(YSTRUE!=cfgPtr->neverDrawAirplaneContainer)
 		{
 			const double designatorT0=FsVrPerfNow();
 			FsFlushScene();
 			FsSetCameraPosition(eyeViewMode.viewPoint,eyeViewMode.viewAttitude,YSTRUE);
-			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode) || YSTRUE==cfgPtr->drawPlayerNameAlways)
+			if(YSTRUE==NeedToDrawGameInfo(eyeViewMode))
+			{
+				SimDrawContainer(eyeViewMode);
+				SimDrawGunAim(&eyeViewMode);
+				SimDrawBombingAim(eyeViewMode,YSTRUE);
+			}
+			else if(YSTRUE==cfgPtr->drawPlayerNameAlways)
 			{
 				SimDrawContainer(eyeViewMode);
 			}
@@ -6804,6 +6832,21 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			// model's own unscaled units) down to ~18 cm.
 			const double HANDPROP_SCALE=0.375;
 
+			// Grip-point registration.  The models draw from their console
+			// ORIGIN (base-plate level), so anchoring that origin at the
+			// grab point put the BASE at the pilot's hand with the rod/
+			// lever floating above it (round-5 device report: "I want the
+			// part I GRAB to be where I grabbed").  Shift the console down
+			// its own up-axis so the part the palm actually wraps lands on
+			// the anchor instead:
+			//   stick.dnm    rod grip tops out at y~0.483 (model units,
+			//                measured); palm centre on the grip ~0.43.
+			//   throttle.dnm lever knob spans y 0.13..0.23 with the knob
+			//                over the console origin at mid-travel; palm
+			//                centre ~0.17.
+			const double STICK_GRIP_Y=0.43;
+			const double THROTTLE_GRIP_Y=0.17;
+
 			if(0.5f<handCtlData[0]) // Right hand: virtual stick grabbed.
 			{
 				const YsVec3 pos(handPose[0],handPose[1],-handPose[2]);
@@ -6815,7 +6858,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				att.SetTwoVector(fwd,up);
 
 				FsVrBeginHandPropDraw();
-				userInput.DrawJoystick(pos,att,HANDPROP_SCALE);
+				userInput.DrawJoystick(pos-up*(STICK_GRIP_Y*HANDPROP_SCALE),att,HANDPROP_SCALE);
 				FsVrEndHandPropDraw();
 			}
 
@@ -6830,7 +6873,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				att.SetTwoVector(fwd,up);
 
 				FsVrBeginHandPropDraw();
-				userInput.DrawThrottle(pos,att,HANDPROP_SCALE);
+				userInput.DrawThrottle(pos-up*(THROTTLE_GRIP_Y*HANDPROP_SCALE),att,HANDPROP_SCALE);
 				FsVrEndHandPropDraw();
 			}
 		}
@@ -9735,10 +9778,35 @@ void FsSimulation::SimDrawContainer(const ActualViewMode &actualViewMode) const
 	}
 }
 
-void FsSimulation::SimDrawGunAim(void) const
+void FsSimulation::SimDrawGunAim(const ActualViewMode *drawViewMode) const
 {
 	const FsExistence *playerObj=GetPlayerObject();
 	YSBOOL hasLeadGunSight=(NULL!=GetPlayerAirplane() ? GetPlayerAirplane()->Prop().GetLeadGunSight() : YSTRUE);
+
+	// The aim marks are DrawCircleContainer/DrawCrossDesignator2 billboards:
+	// the viewpoint matrix passed to them fixes their SIZE (radius=z/18
+	// along that frame's z axis) as well as their orientation.  Flat play
+	// (drawViewMode==NULL) sizes them in the player's own frame -- in
+	// cockpit view the camera shares that frame, so the lead circle and
+	// SimDrawContainer's camera-frame designator ring around the same
+	// target come out equal and nest cleanly.  In VR the head rotates away
+	// from the boresight, so the player frame understates z by
+	// cos(head-to-boresight angle) and the lead circle rendered up to ~20%
+	// smaller than the designator ring right next to it (the Quest report:
+	// "the circles are different sizes and don't overlap cleanly").
+	// Passing the eye pose here sizes and billboards the aim marks in the
+	// SAME frame as the designator rings, restoring the flat-play nesting;
+	// target selection (SimCalculateGunAim) stays in the gun's own frame
+	// either way -- this is a drawing frame, not an aiming change.
+	YsAtt3 drawAtt;
+	YsMatrix4x4 drawMat;
+	if(NULL!=drawViewMode)
+	{
+		drawAtt=drawViewMode->viewAttitude;
+		drawMat.Translate(drawViewMode->viewPoint);
+		drawMat.Rotate(drawAtt);
+		drawMat.Invert();
+	}
 
 	if(playerObj!=NULL &&
 	   playerObj->GetWeaponOfChoice()==FSWEAPON_GUN &&
@@ -9752,7 +9820,12 @@ void FsSimulation::SimDrawGunAim(void) const
 			YsAtt3 att;
 			YsMatrix4x4 mat;
 
-			if(FSEX_GROUND==playerObj->GetType())
+			if(NULL!=drawViewMode)
+			{
+				att=drawAtt;
+				mat=drawMat;
+			}
+			else if(FSEX_GROUND==playerObj->GetType())
 			{
 				const FsGround *playerGround=(const FsGround *)playerObj;
 				pos=playerObj->GetPosition();
@@ -9773,7 +9846,7 @@ void FsSimulation::SimDrawGunAim(void) const
 	}
 
 	const FsAirplane *playerPlane=GetPlayerAirplane();
-	if(playerPlane!=NULL && 
+	if(playerPlane!=NULL &&
 	   playerPlane->Prop().GetHasPilotControlledTurret()==YSTRUE)
 	{
 		YsVec3 dir,aim,cock;
@@ -9783,9 +9856,17 @@ void FsSimulation::SimDrawGunAim(void) const
 			YsAtt3 att;
 			YsMatrix4x4 mat;
 
-			pos=playerPlane->Prop().GetPosition();
-			att=playerPlane->Prop().GetAttitude();
-			mat=playerPlane->Prop().GetInverseMatrix();
+			if(NULL!=drawViewMode)
+			{
+				att=drawAtt;
+				mat=drawMat;
+			}
+			else
+			{
+				pos=playerPlane->Prop().GetPosition();
+				att=playerPlane->Prop().GetAttitude();
+				mat=playerPlane->Prop().GetInverseMatrix();
+			}
 
 			playerPlane->Prop().GetCockpitPosition(cock);
 			playerPlane->Prop().GetMatrix().Mul(cock,cock,1.0);
@@ -9884,16 +9965,27 @@ YSRESULT FsSimulation::SimCalculateGunAim(const FsAirplane *&target,YsVec3 &aim)
 	return YSERR;
 }
 
-void FsSimulation::SimDrawBombingAim(const ActualViewMode &actualViewMode) const
+void FsSimulation::SimDrawBombingAim(const ActualViewMode &actualViewMode,YSBOOL sizeMarksInViewFrame) const
 {
 	auto &viewPoint=actualViewMode.viewPoint;
 	auto &viewAttitude=actualViewMode.viewAttitude;
 
 	const YsMatrix4x4 *mat;
+	YsMatrix4x4 viewMat;
 	const FsAirplane *playerPlane;
 
 	playerPlane=GetPlayerAirplane();
 	mat=&playerPlane->Prop().GetInverseMatrix();
+	if(YSTRUE==sizeMarksInViewFrame)
+	{
+		// Same eye-frame sizing override as SimDrawGunAim's drawViewMode --
+		// see the comment there.  The flat default (YSFALSE) keeps the
+		// airframe-inverse sizing this function has always used.
+		viewMat.Translate(viewPoint);
+		viewMat.Rotate(viewAttitude);
+		viewMat.Invert();
+		mat=&viewMat;
+	}
 
 	if(playerPlane!=NULL &&
 	   (playerPlane->Prop().GetWeaponOfChoice()==FSWEAPON_BOMB ||
@@ -12337,6 +12429,15 @@ void FsSimulation::CheckContinueDraw(void) const
 	if(0!=FsVrIsActive() && 0!=FsVrIsMultiview())
 	{
 		SimComputeVrGuiState();
+	}
+
+	// Keep the VR watchdog alive (FsVrConsumeSimDrawnFrames): SimDrawScreen
+	// above renders a real 3D frame, so this qualifies as a sim-drawn frame.
+	// Without this call the watchdog would end the XR session after ~1.5s of
+	// CHECKCONTINUE dialogs (100 frames at 72 Hz with no FsVrMarkSimDrawn).
+	if(0!=FsVrIsActive())
+	{
+		FsVrMarkSimDrawn();
 	}
 
 	SimDrawFlush(); // <- Swap buffers inside.
@@ -14964,4 +15065,3 @@ void FsSimulation::CloseChatDialog(void)
 		FsDisableIME();
 	}
 }
-
