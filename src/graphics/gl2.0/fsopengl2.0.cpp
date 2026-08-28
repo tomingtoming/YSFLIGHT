@@ -1135,6 +1135,43 @@ void FsVrEndHandPropDraw(void)
 	}
 }
 
+// See fsopengl.h's doc comment: depth-CLEAR + depth-test-on variant for the
+// self-occluding controller model (the props' depth-off discipline turns a
+// concave shell inside out).  The write mask is forced on for the clear --
+// glClear honours glDepthMask, so a scene that ended with depth writes
+// masked off would otherwise silently skip the clear and the model would
+// z-test against stale scene depth.
+static GLboolean fsVrHandCtlModelWasDepthTest=GL_TRUE;
+static GLboolean fsVrHandCtlModelWasDepthMask=GL_TRUE;
+
+void FsVrBeginHandCtlModelDraw(void)
+{
+	GLfloat proj[32],modelView[16];
+	FsGetLastSceneProjectionStereofv(proj);
+	FsGetLastSceneModelViewfv(modelView);
+	YsGLSLSetShared3DRendererProjectionStereo(proj);
+	YsGLSLSetShared3DRendererModelView(modelView);
+
+	int x0,y0,wid,hei;
+	FsVrGetEyeViewport(0,x0,y0,wid,hei);
+	glViewport(x0,y0,wid,hei);
+
+	fsVrHandCtlModelWasDepthTest=glIsEnabled(GL_DEPTH_TEST);
+	glGetBooleanv(GL_DEPTH_WRITEMASK,&fsVrHandCtlModelWasDepthMask);
+	glDepthMask(GL_TRUE);
+	glClear(GL_DEPTH_BUFFER_BIT);
+	glEnable(GL_DEPTH_TEST);
+}
+
+void FsVrEndHandCtlModelDraw(void)
+{
+	if(GL_FALSE==fsVrHandCtlModelWasDepthTest)
+	{
+		glDisable(GL_DEPTH_TEST);
+	}
+	glDepthMask(fsVrHandCtlModelWasDepthMask);
+}
+
 // ---- VR single-pass-stereo in-flight-GUI-dialog composite ----------------
 // Same shape as the HUD trio above, driven by FsVrGuiDataPointer instead of
 // FsVrHudDataPointer.  FsVrSetHudRenderTarget/FsSetWindowSizeOverride are

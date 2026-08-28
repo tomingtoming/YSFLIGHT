@@ -118,6 +118,18 @@ void FsVrDrawReticle(const float lineVtx[24],const YsColor &col);
 void FsVrBeginHandPropDraw(void);
 void FsVrEndHandPropDraw(void);
 
+// Same fix-ups as FsVrBeginHandPropDraw, but for the hand-held VR controller
+// MODEL (misc/vrctl_*.dnm): where the low-poly HOTAS props tolerate
+// depth-test-off, a ~4500-triangle concave controller shell painted without
+// depth turns into an inside-out jumble (later back faces overpaint nearer
+// front faces).  This bracket instead CLEARS the depth buffer and draws with
+// depth testing on (write mask forced on for the clear, both restored): the
+// model still always wins over the already-rasterized scene -- the clear --
+// and its own faces occlude each other correctly.  Only safe at the tail of
+// the scene pass, after everything that reads scene depth has drawn.
+void FsVrBeginHandCtlModelDraw(void);
+void FsVrEndHandCtlModelDraw(void);
+
 // VR single-pass-stereo in-flight-GUI-dialog composite (see fsopengl2.0.cpp).
 // Same bracket/composite shape as the HUD trio above, driven by
 // FsVrGuiDataPointer (fsvr.h) instead of FsVrHudDataPointer: renders whatever

@@ -59,3 +59,48 @@ YSRESULT FsVisualDnm::Load(const wchar_t fn[])
 	}
 	return YSERR;
 }
+
+// See fsvisual.h's doc comment.  Same node walk / VBO-prep / two-pass shape
+// as YsVisualDnm::Draw(modelView,drawFlag) in ysvisual.cpp, with the
+// RenderingOption built from TurnOffAll so the polygonEdge default (YSTRUE,
+// meant for the modeler GUI) stays off in play draws.
+void FsVisualDnm::DrawSolidNoEdge(const YsMatrix4x4 &modelView) const
+{
+	if(dnmPtr)
+	{
+		for(auto nodePtr : dnmPtr->GetRootNodeArray())
+		{
+			DrawSolidNoEdgeNode(modelView,nodePtr);
+		}
+	}
+}
+
+void FsVisualDnm::DrawSolidNoEdgeNode(const YsMatrix4x4 &tfm,Dnm::Node *nodePtr) const
+{
+	auto &nodeState=dnmState.GetState(nodePtr);
+	const YsMatrix4x4 newTfm=tfm*nodeState.tfmCache;
+
+	if(YSTRUE==nodeState.GetShow())
+	{
+		if(YSTRUE!=nodePtr->IsPolygonVboPrepared())
+		{
+			nodePtr->GetDrawingBuffer().RemakePolygonBuffer(*nodePtr,0.8);
+			nodePtr->RemakePolygonVbo(nodePtr->GetVboSet(),nodePtr->GetDrawingBuffer());
+		}
+
+		YsHasShellExtVboSet::RenderingOption opt;
+		opt.TurnOffAll();
+		opt.solidPolygon=YSTRUE;
+		nodePtr->Render(newTfm,opt);
+
+		opt.TurnOffAll();
+		opt.transparentPolygon=YSTRUE;
+		opt.light=YSTRUE;
+		nodePtr->Render(newTfm,opt);
+	}
+
+	for(auto childPtr : nodePtr->children)
+	{
+		DrawSolidNoEdgeNode(newTfm,childPtr);
+	}
+}

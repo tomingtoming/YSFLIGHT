@@ -1234,6 +1234,51 @@ void FsFlightControl::DrawThrottle(const YsVec3 &pos,const YsAtt3 &att,const dou
 	}
 }
 
+// Hand-held VR controller models (WebXR input-profiles meta-quest-touch-plus
+// shapes, converted to DNM by ysflight-web's scripts/gen-vrctl-models.mjs).
+// Authored in WebXR grip space in real-world meters, so they are drawn at
+// scale 1.0 with the grip point as the model origin -- no registration
+// offsets, unlike the console-sized calibration-diorama props above.
+// [0]=left, [1]=right; the load is attempted once per file (the tried flag)
+// because this is called per-frame per-hand while in VR, and DrawJoystick's
+// retry-on-every-call pattern would hit the filesystem every frame if the
+// asset were missing.
+static FsVisualDnm *vrCtlDnm[2]={NULL,NULL};
+static YSBOOL vrCtlDnmTried[2]={YSFALSE,YSFALSE};
+
+void FsFlightControl::DrawVrHandController(YSBOOL rightHand,const YsVec3 &pos,const YsAtt3 &att) const
+{
+	const int side=(YSTRUE==rightHand ? 1 : 0);
+	if(YSTRUE!=vrCtlDnmTried[side])
+	{
+		vrCtlDnmTried[side]=YSTRUE;
+		FsVisualDnm *dnm=new FsVisualDnm;
+		if(dnm->Load(YSTRUE==rightHand ? L"misc/vrctl_right.dnm" : L"misc/vrctl_left.dnm")==YSOK)
+		{
+			// Static model: bake the 31-node hierarchy's transforms once.
+			dnm->CacheTransformation();
+			vrCtlDnm[side]=dnm;
+		}
+		else
+		{
+			delete dnm;
+		}
+	}
+	if(vrCtlDnm[side]!=NULL)
+	{
+		// Same (pos,att)->model-matrix construction as DrawJoystick's, but
+		// through DrawSolidNoEdge (fsvisual.h): the generic Draw drags in
+		// the modeler-GUI polygon-edge pass, which on this mesh is black
+		// fuzz plus a leaked renderer uniform.
+		YsMatrix4x4 tfm;
+		tfm.Translate(pos);
+		tfm.RotateXZ(att.h());
+		tfm.RotateZY(att.p());
+		tfm.RotateXY(att.b());
+		vrCtlDnm[side]->DrawSolidNoEdge(tfm);
+	}
+}
+
 void FsFlightControl::DrawRudder(const YsVec3 &pos,const YsAtt3 &att) const
 {
 	PrepareJoystickPolygonModel();
