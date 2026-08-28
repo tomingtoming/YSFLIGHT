@@ -59,7 +59,16 @@
 //                              frame, so the zeros were never consumed --
 //                              and any stale mouse-as-joystick position
 //                              could steer the plane after release.)
-//   [9..15] reserved, always 0
+//   [9]  rightHandTracked     (0 or 1; the right XR controller is currently
+//                              reporting a grip pose.  Set each frame by the
+//                              writer's input-source loop, cleared when the
+//                              source disappears and at session end.  Gates
+//                              the hand-held controller-model draw: pose
+//                              data alone cannot distinguish "hand present,
+//                              not grabbing" from "controller asleep, block
+//                              holding its last write".)
+//   [10] leftHandTracked      (0 or 1; left-hand counterpart of [9])
+//   [11..15] reserved, always 0
 
 // Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
 //   A VR controller runtime (WebXR in ysflight-web) writes each grabbed
@@ -85,6 +94,12 @@
 //   already given in, up to the WebXR-vs-engine handedness flip (negate z)
 //   -- so no per-frame world-transform reconstruction is needed in the
 //   engine, just that one flip.
+//   While a hand is NOT grabbed, the writer streams the hand's LIVE raw
+//   grip pose here instead (same viewer space).  FsSimulation draws the
+//   hand-held VR controller model (misc/vrctl_right.dnm / vrctl_left.dnm,
+//   authored in WebXR grip space) at that pose, gated on the tracked flags
+//   (FsVrControlDataPointer [9]/[10]) so a sleeping controller's stale
+//   last-written pose is never shown.
 //   Right hand: indices [0..7].  Left hand: indices [8..15].
 //     [0..2]  console position (x,y,z), viewer space
 //     [3..6]  console orientation quaternion (x,y,z,w), viewer space

@@ -6876,6 +6876,55 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				userInput.DrawThrottle(pos-up*(THROTTLE_GRIP_Y*HANDPROP_SCALE),att,HANDPROP_SCALE);
 				FsVrEndHandPropDraw();
 			}
+
+			// Ungrabbed tracked hands: the real-shape VR controller model
+			// (misc/vrctl_*.dnm) at the LIVE grip pose -- while a hand is
+			// not grabbing, the web layer streams the raw grip here instead
+			// of a frozen console anchor (fsvr.h's hand-pose doc), so the
+			// model follows the physical controller 1:1 and the pilot can
+			// SEE the hand the help placard is talking about.  Grabbed
+			// hands show the articulated HOTAS props above instead.  Gated
+			// on the tracked flags ([9]/[10]): pose data alone cannot
+			// distinguish "present, idle" from "asleep, block holding its
+			// last write".
+			//
+			// Basis mapping differs from the props: these models are
+			// authored in WebXR grip space itself, so engine-forward (+Z)
+			// and engine-up (+Y) are the grip quat's images of the model's
+			// own +Z/+Y, z-flipped like every other WebXR->engine vector
+			// here.  The glb->DNM import mirrors X (ysflight-web
+			// dnm-gltf.js's CHIRALITY note); building the attitude from
+			// two axis images absorbs that mirror exactly (a proper
+			// rotation is fixed by two axis images, and the mirror pair
+			// M*R*G with det=+1 IS that rotation).
+			if(0.5f<handCtlData[9] && !(0.5f<handCtlData[0])) // Right: tracked, not grabbed.
+			{
+				const YsVec3 pos(handPose[0],handPose[1],-handPose[2]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,1.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0,0.0),handPose[3],handPose[4],handPose[5],handPose[6]);
+				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
+				const YsVec3 up (upV.x(), upV.y(), -upV.z());
+				YsAtt3 att;
+				att.SetTwoVector(fwd,up);
+
+				FsVrBeginHandCtlModelDraw();
+				userInput.DrawVrHandController(YSTRUE,pos,att);
+				FsVrEndHandCtlModelDraw();
+			}
+			if(0.5f<handCtlData[10] && !(0.5f<handCtlData[4])) // Left: tracked, not grabbed.
+			{
+				const YsVec3 pos(handPose[8],handPose[9],-handPose[10]);
+				const YsVec3 fwdV=FsVrRotateVecByQuat(YsVec3(0.0,0.0,1.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 upV =FsVrRotateVecByQuat(YsVec3(0.0,1.0,0.0),handPose[11],handPose[12],handPose[13],handPose[14]);
+				const YsVec3 fwd(fwdV.x(),fwdV.y(),-fwdV.z());
+				const YsVec3 up (upV.x(), upV.y(), -upV.z());
+				YsAtt3 att;
+				att.SetTwoVector(fwd,up);
+
+				FsVrBeginHandCtlModelDraw();
+				userInput.DrawVrHandController(YSFALSE,pos,att);
+				FsVrEndHandCtlModelDraw();
+			}
 		}
 
 		// G-load blackout(dark)/redout(red) full-field tint: flat play draws

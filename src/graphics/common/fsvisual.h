@@ -49,6 +49,18 @@ public:
 
 	YSRESULT Load(const wchar_t fn[]);
 
+	/*! Draws like YsVisualDnm::Draw(modelView,DRAWALL) but WITHOUT the
+	    polygon-edge wireframe pass that Draw's default RenderingOption
+	    drags in: on a ~4500-triangle controller shell the edges are pure
+	    black fuzz plus per-frame GPU waste, and the upstream edge pass
+	    additionally leaves the shared vari-color renderer's uniform color
+	    at (0,0,0,0.2) for whatever draws next (it sets, never restores).
+	    Used by the hand-held VR controller models (DrawVrHandController). */
+	void DrawSolidNoEdge(const YsMatrix4x4 &modelView) const;
+
+private:
+	void DrawSolidNoEdgeNode(const YsMatrix4x4 &tfm,Dnm::Node *nodePtr) const;
+public:
 };
 
 inline bool operator==(std::nullptr_t,const FsVisualDnm &vis)

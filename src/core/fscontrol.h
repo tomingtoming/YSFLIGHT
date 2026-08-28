@@ -293,6 +293,13 @@ public:
 	/*! See DrawJoystick(pos,att,scale)'s doc comment. */
 	void DrawThrottle(const YsVec3 &pos,const YsAtt3 &att,const double &scale) const;
 	void DrawRudder(const YsVec3 &pos,const YsAtt3 &att) const;
+	/*! Draws the hand-held VR controller model (misc/vrctl_right.dnm or
+	    misc/vrctl_left.dnm -- the WebXR input-profiles Touch shapes).  The
+	    models are authored in real-world meters around the WebXR grip-space
+	    origin, so there is no scale parameter: scale is 1.0 by construction
+	    and pos IS the grip point.  No articulation (unlike DrawJoystick/
+	    DrawThrottle); a missing model file is a silent no-op. */
+	void DrawVrHandController(YSBOOL rightHand,const YsVec3 &pos,const YsAtt3 &att) const;
 	YSRESULT CenterJoystick(class FsControlAssignment &ctlAssign);
 private:
 	double Margin(double org,const double deadZone) const;
