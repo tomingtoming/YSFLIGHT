@@ -963,7 +963,14 @@ void FsSet2DDrawing(void)
 // report the HUD texture size for the duration of the off-screen HUD pass, so
 // pixel-space HUD placement lands on the HUD texture.  (fssimplewindow stays
 // dependency-free of fsvr; only the engine, which links both, bridges them.)
+#ifdef __EMSCRIPTEN__
 extern "C" void FsSetWindowSizeOverride(int active,int w,int h);
+#else
+// Desktop builds have no WebXR framebuffer-size override.
+static void FsSetWindowSizeOverride(int,int,int)
+{
+}
+#endif
 
 void FsVrBeginHudRender(void)
 {
