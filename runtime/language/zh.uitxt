@@ -1,0 +1,522 @@
+YSFLIGHT_LOCALIZATION_INFO_FILE
+
+*Needs to be encoded in UTF-8
+
+$LABEL "Chinese (Simplified)"
+$FGCOL 255
+$BGCOL 0
+
+
+
++airdlg/smoke/samecolor                            #所有烟迹发生器使用同一颜色
++assigndlg/setdefaultgamepad                       #使用游戏手柄
++assigndlg/setdefaultkeyassign                     #仅恢复默认键盘分配（保留鼠标/操纵杆分配）
++cfgdlg/ifvisibilityislessthan                     #当能见度低于：
++cfgdlg/thismiles                                  #英里时
++cfgdlg/use3dhud                                   #使用 3D 平视显示器
++cfgdlg/usesimplehud                               #使用简易平视显示器
++common/mission                                    #---任务---
++common/wingman                                    #僚机
++configdlg/phongShading                            #冯氏着色（仅限 OpenGL 2.0）
++dlg/autopilot/circle                              #原地盘旋待命
++dlg/autopilot/disengage                           #解除自动驾驶
++dlg/autopilot/fly_hdgbug                          #按航向游标飞行
++dlg/autopilot/landing                             #着陆
++dlg/autopilot/straight_level                      #平直飞行
++dlg/autopilot/takeoff                             #起飞
++dlg/radiocomm/fueltruck/call                      #呼叫补给
++dlg/radiocomm/fueltruck/dismiss                   #返回原位
++dlg/radiocomm/fueltruck/title                     #与加油车通话
++dlg/radiocomm/formation/dontcall                  #不下达指令。
++dlg/radiocomm/formation/spread                    #散开
++dlg/radiocomm/formation/tighten                   #收拢
++dlg/radiocomm/wingman_command/attack_ground       #攻击地面目标
++dlg/radiocomm/wingman_command/break_and_attack    #脱离编队，攻击敌机
++dlg/radiocomm/wingman_command/cover_me            #掩护我！
++dlg/radiocomm/wingman_command/dontsend            #不发送指令。
++dlg/radiocomm/wingman_command/form_on_my_wing     #跟我编队
++dlg/radiocomm/wingman_command/hold                #在原空域盘旋待命
++dlg/radiocomm/wingman_command/land_refuel_takeoff #着陆、补给后再次起飞
++dlg/radiocomm/wingman_command/rtb                 #返回基地
++dlg/radiocomm/wingman_command/title               #向僚机下达指令
++dlg/radiocomm/target/all_in_formation             #编队中的全部飞机
++dlg/radiocomm/target/allwingman                   #全部僚机
++dlg/radiocomm/target/atc                          #空中交通管制员
++dlg/radiocomm/target/dontcall                     #不呼叫任何人。
++dlg/radiocomm/target/fueltruck                    #加油车
++dlg/radiocomm/target/gunner                       #炮手
++gamemsg/esctwice                                  #按两次 ESC 键结束模拟
++gamemsg/esconce                                   #再按一次 ESC 键退出
++errmsg/createflt                                  #请先新建或载入飞行
++errmsg/nofltrecord                                #没有飞行记录。
++errmsg/noprevflt                                  #上一次任务的数据不存在或已损坏。
++errmsg/landingpracticenotavailable                #该地图不支持着陆训练模式。
++common/ok                                         #确定
++common/cancel                                     #取消
++common/close                                      #关闭
++common/delete                                     #删除
++common/field                                      #地图
++common/startpos                                   #起始位置
++common/setdefault                                 #恢复默认
++common/english                                    #English（英文）
++common/autolanguage                               #Language Auto Select（自动选择语言）
++common/general                                    #常规
++common/yes                                        #是
++common/no                                         #否
++common/error                                      #错误！
++aboutdlg/title                                    #关于 YS FLIGHT SIMULATOR
++aboutdlg/version                                  #版本
++maindlg/showconsole                               #显示控制台
++menu/autodemo_acro_star_of_david                  #大卫之星
++menu/file/recent                                  #最近使用的文件
++menu/learning/close                               #关闭训练数据
++menu/learning/open                                #打开训练数据
++menu/learning/save                                #保存训练数据
++menu/sim/racingmode                               #空中竞速模式
++misc/testver                                      #本程序是 YSFLIGHT 用于调试的未测试版本，\n也就是说，我并没有对它做过系统的测试。\n因此，程序中难免存在大量缺陷。如果您希望使用\n更稳定的版本，请下载目前最新的正式发布版。\n如果您在这个未测试版本中发现了缺陷，请发邮件\n告诉我（PEB01130@nifty.com）。我会尽量回复每一封\n邮件，但有时（尤其是忙碌的时候）您可能要等两三个月\n才能收到回复，也可能我干脆就忘了。若真如此，\n还请见谅 (^_^;)\n
++misc/firststartrecordfailure                      #无法记录程序的首次启动。\n请让系统管理员启动一次本程序，\n或者为您添加 YSFLIGHT 安装目录的\n写入权限。\n
++misc/initialized                                  #设置已初始化。
++misc/voteysflight                                 #Vector 大奖赛的决选投票将持续到 3 月 15 日。\n这是一项人气投票，用于评选 Vector 收录的全部软件中\n最受欢迎的作品。\n\nVector 是一家日本公司，很遗憾投票页面没有英文版。\n不过，如果您能阅读日文，请点击下面的链接为 YSFLIGHT\n投上一票。谢谢！\n
++airdlg/aircrafttab                                #飞机
++airdlg/loadingtab                                 #挂载
++airdlg/categorytab                                #类别
++airdlg/aircraft                                   #选择飞机
++airdlg/aamshort                                   #空对空导弹（近距）
++airdlg/aaamshort                                  #高机动空对空导弹（近距）
++airdlg/aammid                                     #空对空导弹（中距）
++airdlg/agm                                        #空对地导弹
++airdlg/bomb500                                    #炸弹（500磅）
++airdlg/bomb250                                    #炸弹（250磅）
++airdlg/bomb500hd                                  #炸弹（500磅，高阻）
++airdlg/rocket                                     #火箭弹
++airdlg/flarepod                                   #箔条/热焰弹投放器
++airdlg/fueltank                                   #副油箱
++airdlg/fuel                                       #燃油（%）
++airdlg/smoke                                      #烟迹
++airdlg/smokecol                                   #烟迹颜色
++airdlg/search                                     #搜索
++airdlg/normal                                     #正常类
++airdlg/utility                                    #实用类
++airdlg/aerobatic                                  #特技类
++airdlg/fighter                                    #战斗机
++airdlg/attacker                                   #攻击机
++airdlg/trainer                                    #教练机
++airdlg/bomber                                     #轰炸机
++airdlg/ww2fighter                                 #二战战斗机
++airdlg/ww2attacker                                #二战攻击机
++airdlg/ww2bomber                                  #二战轰炸机
++airdlg/ww2divebomber                              #二战俯冲轰炸机
++aircombatdlg/noplayerplane                        #请选择玩家使用的飞机
++newfltdlg/createnewflight                         #=== 新建飞行 ===
++newfltdlg/selectair                               #更换玩家飞机
++newfltdlg/changewingman1                          #更换僚机 1
++newfltdlg/changewingman2                          #更换僚机 2
++newfltdlg/changewingman3                          #更换僚机 3
++newfltdlg/changewingman4                          #更换僚机 4
++newfltdlg/changewingman5                          #更换僚机 5
++newfltdlg/changewingman6                          #更换僚机 6
++newfltdlg/changewingman7                          #更换僚机 7
++newfltdlg/changewingman8                          #更换僚机 8
++newfltdlg/changewingman9                          #更换僚机 9
++newfltdlg/environment                             #环境
++newfltdlg/specifyenvironment                      #指定环境
++newfltdlg/day                                     #昼间
++newfltdlg/night                                   #夜间
++newfltdlg/weather                                 #天气
++newfltdlg/winddir                                 #风向
++newfltdlg/windspd                                 #风速（节）
++newfltdlg/visibility                              #能见度（英里）
++newfltdlg/overcast                                #云层
++newfltdlg/overcastfloor                           #云底高
++newfltdlg/overcastthickness                       #厚度
++newfltdlg/formation                               #编队
++newfltdlg/flynow                                  #立即开始飞行
++newfltdlg/wingman                                 #僚机
++newfltdlg/nousablegndobj                          #该地图中没有可用的地面单位。
++newfltdlg/allowstealth                            #隐身机
++newfltdlg/allowbomb                               #炸弹
++newfltdlg/allowagm                                #空对地导弹
++newfltdlg/allowheavybomber                        #重型轰炸机
++newfltdlg/maxnumattacker                          #敌机数量上限
++newfltdlg/jet                                     #喷气机
++newfltdlg/ww2                                     #二战机
++newfltdlg/addcomair                               #加入电脑控制的飞机
++resultdlg/missiongoal                             #任务结果
++resultdlg/success                                 #** 任务完成！ **
++resultdlg/failure                                 #任务失败。
++resultdlg/failure/kia                             #失败：任务中阵亡。
++resultdlg/failure/earlytermination                #失败：中途终止了任务。
++resultdlg/failure/misseddestination               #失败：未能在目的地着陆。
++resultdlg/failure/groundloss                      #失败：被摧毁的车辆/设施过多。（存活=%d，需要=%d）
++resultdlg/failure/failedtoprotect                 #失败：未能保护 %s
++resultdlg/failure/airstrike                       #失败：摧毁的地面目标过少。（已摧毁=%d，需要=%d）
++resultdlg/failure/failedtodestroy                 #失败：未能摧毁 %s
++resultdlg/failure/failedtokill                    #失败：未能击落 %s
++resultdlg/failure/failedtokillall                 #失败：未能击落全部敌机。
++resultdlg/failure/failedtoescort                  #失败：护航对象 %s 未能着陆。
++resultdlg/success/arriveddestination              #成功：已抵达目的地。
++resultdlg/success/protected                       #成功：保护了 %s。
++resultdlg/success/groundsurvive                   #成功：%d 个车辆/设施存活。
++resultdlg/success/airstrike                       #成功：摧毁了 %d 个地面目标。
++resultdlg/success/destroyed                       #成功：摧毁了 %s
++resultdlg/success/killed                          #成功：击落了 %s
++resultdlg/success/killedall                       #成功：击落了全部敌机。
++resultdlg/success/escorted                        #成功：护航对象 %s 已安全着陆。
++resultdlg/summary                                 #总结
++resultdlg/usedaircraft                            #所驾机型：%s
++resultdlg/finalstate                              #最终状态：%s
++resultdlg/facilities                              #车辆/设施
++resultdlg/alivedead                               #存活：%d 被摧毁：%d
++resultdlg/airtoairscore                           #空对空得分：%d
++resultdlg/airtoairpenalty                         #空对空扣分：%d
++resultdlg/airtoairkill                            #击落 %d 架飞机
++resultdlg/noaircombat                             #无空战
++resultdlg/airtogndscore                           #空对地得分：%d
++resultdlg/airtogndpenalty                         #空对地扣分：%d
++resultdlg/airtogndkill                            #摧毁 %d 个地面目标
++resultdlg/noairstrike                             #无对地攻击
++resultdlg/totalscore                              #总得分：%d
++resultdlg/state/flying                            #仍在飞行，尚未着陆
++resultdlg/state/landed                            #已着陆
++resultdlg/state/landedstatic                      #已着陆并安全停稳
++resultdlg/state/dead                              #坠毁
++resultdlg/state/overrun                           #冲出跑道
++resultdlg/state/unknown                           #状态不明
++resultdlg/scoredtail                              #得分明细
++resultdlg/landinganalysis                         #着陆分析
++resultdlg/verticalspeedattouchdown                #接地时垂直速度
++resultdlg/crabangleattouchdown                    #接地时偏流角
++nojoystickdlg/message                             #未连接操纵杆，或操纵杆尚未正确设置。若您希望使用\n键盘或鼠标作为操纵杆，请打开\n选项 -> 按键/鼠标/操纵杆分配设置，并将键盘或鼠标\n分配给升降舵与副翼。\n\n（现已临时将鼠标分配给升降舵与副翼。）
++nojoystickdlg/dontshowagain                       #不再显示此消息。
++gndtoairdlg/enemytab                              #敌机
++contdlg/message                                   #继续飞行？
++contdlg/continue                                  #继续（Y）
++contdlg/terminate                                 #结束（ESC）
++configdlg/default                                 #默认值
++configdlg/gamerule                                #游戏规则
++configdlg/graphics                                #图形设置
++configdlg/opengl                                  #OpenGL
++common/setdefault                                 #恢复默认
++configdlg/environment                             #环境
++configdlg/light                                   #光源方向
++configdlg/aircraft                                #航空器
++configdlg/blackout                                #黑视
++configdlg/midair                                  #空中相撞判定
++configdlg/notailstrike                            #擦尾不导致爆炸
++configdlg/canlandanywhere                         #可在任意地点着陆（速度足够低时）
++configdlg/autorudder                              #方向舵自动协调
++configdlg/precision                               #提高模拟精度
++configdlg/showhudalways                           #始终显示平视显示器
++configdlg/dontuseinstpanel                        #不使用仪表板
++configdlg/showplayernamealways                    #始终显示玩家名称
++configdlg/showjoystick                            #显示虚拟操纵杆
++configdlg/f8cameradelay                           #F8 视角延迟
++configdlg/minradaralt                             #雷达最低探测高度（英尺）
++configdlg/showias                                 #显示指示空速（IAS）
++configdlg/drawshadow                              #绘制阴影
++configdlg/shadowofdeadplane                       #绘制已坠毁飞机的阴影
++configdlg/drawordinance                           #绘制挂载武器
++configdlg/drawcoarseweapon                        #以低精度绘制武器
++configdlg/horizongradation                        #地平线渐变
++configdlg/cloudtype                               #云的类型
++configdlg/drawlightalways                         #昼间也显示灯光
++configdlg/airgraphquality                         #飞机绘制质量
++configdlg/smoketype                               #烟迹绘制类型
++configdlg/smokeremain                             #烟迹存留时间（秒）
++configdlg/smokestep                               #每 N 步绘制一次烟迹
++configdlg/fog                                     #雾
++configdlg/visibility                              #能见度（英里）
++configdlg/zbuffquality                            #Z 缓冲质量
++configdlg/trspobj                                 #半透明物体
++configdlg/trspsmoke                               #半透明烟迹
++configdlg/trspvapor                               #半透明涡流
++configdlg/reducepeephole                          #减轻窥孔效应
++configdlg/usedisplistcloud                        #绘制云时使用显示列表
++configdlg/usedisplistexplosion                    #绘制爆炸时使用显示列表
++configdlg/usedisplistweapon                       #绘制武器时使用显示列表
++configdlg/groundtexture                           #使用地面纹理
++configdlg/runwaylighttexture                      #使用跑道灯光纹理
++configdlg/showfps                                 #显示帧率
++configdlg/drawsmokebyparticle                     #用粒子绘制燃烧烟雾
++configdlg/useantialiasing                         #使用抗锯齿
++configdlg/antialiasingneedrestart                 #抗锯齿设置需要重新启动程序后\n才能生效。
++configdlg/troublefreq                             #航空器故障频率（次/小时）
++configdlg/reliability                             #航空器可靠性
++assigndlg/save                                    #保存
++assigndlg/load                                    #载入
++assigndlg/setdefault                              #恢复默认
++assigndlg/setdefaultmouse                         #将鼠标用作操纵杆
++assigndlg/setdefaultkeyboard                      #将键盘用作操纵杆
++assigndlg/setprimaryjoystick                      #指定主操纵杆编号后使用默认按键与按钮设置
++assigndlg/axis                                    #轴
++assigndlg/trigger                                 #按钮
++assigndlg/keyboard                                #键盘
++assigndlg/axisfunc                                #轴功能
++assigndlg/triggerfunc                             #按钮功能
++assigndlg/keyfunc                                 #按键功能
++assigndlg/joystickaxis                            #操纵杆轴
++assigndlg/joystickbutton                          #操纵杆按钮
++assigndlg/key                                     #按键
++assigndlg/change                                  #更改
++assigndlg/elvdeadzone                             #升降舵死区（%）
++assigndlg/aildeadzone                             #副翼死区（%）
++assigndlg/ruddeadzone                             #方向舵死区（%）
++assigndlg/usepov                                  #使用 POV 帽形开关
++assigndlg/primariaxismessage                      #请在下面的框中选择主操纵杆编号，\n或者用主操纵杆画一个完整的圆，\n让程序自动识别主操纵杆。
++optiondlg/scrnmode                                #屏幕模式
++optiondlg/rememberwndpos                          #记住窗口位置与大小
++optiondlg/alwaysontop                             #总在最前
++optiondlg/fontsize                                #字体大小
++optiondlg/fontsizewarning                         #注意：在中文环境下，小于 12 像素的\n      字体大小将被忽略。
++optiondlg/langtype                                #使用语言
++optiondlg/langfile                                #语言文件
++optiondlg/langfilebutton                          #选择语言文件
++optiondlg/sound                                   #音效
++optiondlg/openingdemo                             #启动演示
++optiondlg/usemappreview                           #使用地图预览
++optiondlg/usetaskbar                              #最小化到任务栏
++optiondlg/backpicture                             #显示背景图片
++optiondlg/d3dxsprite_issue                        #我的 GPU 存在 D3DXSprite 问题
++optiondlg/direct3dsucks                           #我的 Direct3D 无法绘制字体
++maindlg/create                                    #新建飞行
++maindlg/retry                                     #重试上一次飞行
++maindlg/open                                      #载入飞行
++maindlg/save                                      #保存飞行
++maindlg/flynow                                    #开始飞行！
++maindlg/playrecord                                #播放飞行记录
++exitdlg/message                                   #退出程序？
++exitdlg/exit                                      #退出（Y）
++exitdlg/backtomenu                                #返回菜单（N）
++deletefltdlg/message                              #删除当前飞行？
++deletefltdlg/delete                               #是（Y）
++deletefltdlg/notdelete                            #否（N）
++stationarydlg/endflight                           #结束飞行
++stationarydlg/confirmendflight                    #确认结束飞行
++stationarydlg/supply                              #补给
++stationarydlg/changevehicle                       #更换载具
++firstdlg/1stline                                  #（本消息在安装后首次启动程序时\n自动显示。）
++firstdlg/2ndline                                  #非常感谢您下载 YS FLIGHT SIMULATOR。\n也欢迎访问我的网站，网址是：
++firstdlg/3rdline                                  #您也可以通过下面的地址直接前往下载页面：
++firstdlg/4thline                                  #祝您玩得开心！谢谢！
++firstdlg/5thline                                  #Captain YS（山川机长）
++supportdlg/1stline                                #（本消息在安装后首次启动程序时\n自动显示。\n之后可以通过“帮助”->“支持 YSFLIGHT 项目”再次打开。）
++supportdlg/2ndline                                #YSFLIGHT 是免费软件，您无需付费即可游玩。\n但维护这个项目需要一些开销。如果您愿意通过下列任一方式支持\nYSFLIGHT 项目，我将不胜感激。
++supportdlg/3rdline                                #(1) 从下面的网址购买共享软件：
++supportdlg/4thline-1                              #(2) 当您在 Amazon 购买书籍、电脑软件、CD 或其他商品时，\n请通过下面链接打开 Amazon 网站
++supportdlg/4thline-2                              # 
++supportdlg/4thline-3                              #    然后下单。（注：只要您是通过我网站上的链接打开 Amazon 网站，任何购买都计入。）
++supportdlg/jwordline-1                            #(3) 
++supportdlg/jwordline-2                            # 
++supportdlg/installjword                           #安装 JWord 插件（免费）
++supportdlg/explainjword                           #JWord 插件说明
++supportdlg/5thline-1                              #也欢迎访问下列页面链接的赞助商站点：
++supportdlg/5thline-2                              # 
++supportdlg/6thline                                #非常感谢您对 YSFLIGHT 项目的支持。
++explainjword/line1                                #J-Word 插件是一款用于 Internet Explorer 等浏览器的插件，\n可以直接在地址栏中用日文进行检索。JWord 插件免费使用。\n\n（以下摘自《JWord 插件介绍》）\n
++explainjword/line2                                #《什么是 JWord 服务？》\n
++explainjword/line3                                #JWord 服务是一项综合信息检索服务：\n在 Internet Explorer 等浏览器中安装专用插件后，\n即可从地址栏、检索栏等处进行各类分类检索。\n
++explainjword/line4                                #浏览器的地址栏原本需要输入由字母和数字组成的 URL 才能访问目标站点，\n而 JWord 最大的特点是可以直接用日文访问站点。\n这样便能构建出轻松抵达目标站点的环境。\n
++explainjword/line5                                #◎JWord 介绍页面
++explainjword/url                                  #
++installjword/line1                                #程序检测到当前 Windows 不是日文版。YSFLIGHT 附带了一个名为 JWord 的\nInternet Explorer 插件，它只能在日文版 Windows 上运行。\n\n
++installjword/line2                                #您可以删除 JWord 安装程序以节省磁盘空间。JWord 插件有时会被\n反间谍软件程序误判为间谍软件，尽管它并不属于间谍软件。\n删除安装程序即可避免此类误报。\n
++installjword/line3                                #删除 JWord 安装程序不会影响 YSFLIGHT 的任何功能，删除后您仍可使用\nYSFLIGHT 的全部功能。\n
++installjword/line4                                #要现在删除 JWord 插件安装程序吗？
++installjword/line5                                #
++installjword/install                              #安装 JWord 插件（免费）
++installjword/explainjword                         #JWord 插件说明
++installjword/dontinstall                          #           不安装          
++installjword/yesdelete                            #是，删除它。
++installjword/comment                              #注：即使不安装 JWord 插件，您也可以使用 YSFLIGHT 的全部\n功能。但如果您愿意安装，作者可以获得少量介绍费，我会\n非常感谢。\n\n
++installjword/firststart                           #（本消息仅在首次启动时显示。）
++net/username                                      #用户名
++net/field                                         #地图
++net/hostname                                      #服务器主机名（IP 地址）
++net/hostport                                      #服务器端口号
++net/history                                       #从历史记录中选择服务器
++net/noairplane                                    #此客户端没有可在该服务器上使用的飞机数据。\n请联系服务器管理员了解详情。
++net/noscenery                                     #此客户端没有该服务器使用的地图数据。\n请联系服务器管理员了解详情。
++net/error/versionconflict                         #服务器的网络协议版本\n与此客户端不一致。\n请使用与服务器\n相同版本的 YSFLIGHT。
++netconfig/general                                 #常规
++netconfig/client                                  #客户端
++netconfig/server1                                 #服务器1
++netconfig/server2                                 #服务器2
++netconfig/server3                                 #服务器3
++netconfig/port                                    #网络端口
++netconfig/username                                #默认用户名
++netconfig/chatlog                                 #保存聊天记录
++netconfig/defserveraddr                           #默认服务器 IP 地址
++netconfig/defstp                                  #默认起始位置
++netconfig/defiff                                  #默认敌我识别（IFF）
++netconfig/recordflt                               #记录飞行
++netconfig/freemem                                 #尽可能释放内存
++netconfig/deffield                                #默认地图
++netconfig/configintercept                         #设置拦截任务
++netconfig/disablechat                             #禁用聊天
++netconfig/logontimeout                            #登录超时
++netconfig/maxconn                                 #单一地址最大连接数
++netconfig/svrreset                                #服务器重置间隔：
++netconfig/svrstop                                 #重置多少次后停止服务器：
++netconfig/welcomemsg                              #发送欢迎消息
++netconfig/groundfire                              #启用地面防空火力
++netconfig/usemissile                              #启用空对空/空对地导弹
++netconfig/usegun                                  #启用机炮/炸弹/火箭弹
++netconfig/radargunsight                           #禁用雷达提前量瞄准
++netconfig/disable3rdairview                       #禁用其他飞机视角
++netconfig/notifyjoinleave                         #通知用户加入/离开
++netconfig/showusername                            #显示用户名
++netconfig/midair                                  #空中相撞判定
++netconfig/blackout                                #黑视
++netconfig/canlandanywhere                         #可在任意地点着陆
++netconfig/minradaralt                             #雷达最低探测高度
++netconfig/blockedip                               #已封禁的 IP 地址
++netconfig/delblockedip                            #从列表中删除选中的 IP 地址
++netconfig/newblockedip                            #新的封禁 IP 地址
++netconfig/addblockedip                            #将新的 IP 地址加入列表
++netconsole/selectair                              #选择飞机
++netconsole/selectstp                              #选择起始位置
++netconsole/join                                   #开始飞行
++netconsole/observermode                           #观战模式
++netconsole/dispeluser                             #断开用户连接
++netconsole/listuser                               #用户列表
++netconsole/whokilledme                            #谁击落了我？
++netconsole/whomhaveikilled                        #我击落了谁？
++netconsole/eudnrance_jet                          #开始耐久空战（喷气机）
++netconsole/endurance_ww2                          #开始耐久空战（二战机）
++netconsole/intercept                              #开始拦截任务
++netconsole/closeairsupport                        #开始近距离空中支援任务
++netconsole/endserver                              #关闭服务器
++netconsole/confirmendserver                       #确认关闭服务器
++netconsole/reviveground                           #恢复地面单位
++netconsole/confirmreviveground                    #确认恢复地面单位
++netconsole/chat                                   #聊天
++netconsole/send                                   #发送
++netconsole/logout                                 #登出
++netconsole/confirmlogout                          #确认登出
++netconsole/disablechat                            #禁用聊天
++netconsole/lockserver                             #锁定服务器
++netconsole/joinlock                               #锁定加入
++filedlg/ask_overwrite                             #文件已存在。要覆盖吗？
++filedlg/saved                                     #已保存。
++filedlg/cannotwrite                               #无法写入文件。
++filedlg/cannotload                                #无法读取文件。
++menu/fileMenu                                     #文件
++menu/file-Open                                    #打开飞行/飞行记录
++menu/file-Save                                    #保存飞行/飞行记录
++menu/file-OpenMission                             #打开任务
++menu/file-OpenPrevFlight                          #打开上一次任务
++menu/file-Close                                   #关闭飞行/飞行记录
++menu/file-Exit                                    #退出
++menu/simulationMenu                               #模拟
++menu/simulation-Fly                               #开始飞行
++menu/simulation-Retry                             #重新挑战上一次飞行
++menu/simulation-Replay                            #回放飞行记录
++menu/simulation-Create                            #新建飞行
++menu/simulation-DayNight                          #选择昼间/夜间
++menu/simulation-DisableGroundFire                 #禁用地面防空火力
++menu/simulation-AirCombat                         #创建空战
++menu/simulation-SelectAir                         #选择飞机
++menu/simulation-SelectStp                         #选择起始位置
++menu/simulation-CreateInGnd                       #创建模拟（地面单位）
++menu/simulation-LdgPractice                       #着陆训练
++menu/simulation-Endurance                         #耐久空战模式
++menu/simulation-Intercept                         #基地防空拦截任务
++menu/simulation-CloseAirSupport                   #近距离空中支援任务
++menu/simulation-AntiAirMission                    #地对空基地防御任务
++menu/simulation-Ldg-Level01                       #等级 1：直线进近，无风，能见度良好
++menu/simulation-Ldg-Level02                       #等级 2：直线进近，微风，能见度良好
++menu/simulation-Ldg-Level03                       #等级 3：折线进近，无风，能见度良好
++menu/simulation-Ldg-Level04                       #等级 4：四边进近，微风，能见度良好
++menu/simulation-Ldg-Level05                       #等级 5：四边进近，中等风，能见度良好
++menu/simulation-Ldg-Level06                       #等级 6：四边进近，强风，能见度良好
++menu/simulation-Ldg-Level07                       #等级 7：直线进近，无风，低云
++menu/simulation-Ldg-Level08                       #等级 8：折线进近，无风，低云
++menu/simulation-Ldg-Level09                       #等级 9：四边进近，无风，低云
++menu/simulation-Ldg-Level10                       #等级10：四边进近，微风，低云
++menu/simulation-Ldg-Level11                       #等级11：四边进近，中等风，低云
++menu/simulation-Ldg-Level12                       #等级12：直线进近，无风，低能见度
++menu/simulation-Ldg-Level13                       #等级13：四边进近，无风，低能见度
++menu/simulation-Ldg-Level14                       #等级14：四边进近，中等风，低能见度
++menu/simulation-Ldg-Level15                       #等级15：四边进近，强风，低能见度＋低云
++menu/optionMenu                                   #选项
++menu/option-Config                                #设置
++menu/option-Option                                #选项
++menu/option-KeyAssign                             #操纵杆/按键分配
++menu/option-JoyCalib                              #校准操纵杆
++menu/autoDemoMenu                                 #自动演示
++menu/autoDemo-Acro                                #特技飞行
++menu/autoDemo-DogFight                            #缠斗
++menu/autoDemo-Ldg                                 #着陆
++menu/autoDemo-CarrierLdg                          #航母着舰
++menu/autoDemo-Acro-CorkScrew                      #螺旋滚转
++menu/autoDemo-Acro-SlowRoll                       #慢滚
++menu/autoDemo-Acro-DeltaLoop                      #三角队筋斗
++menu/autoDemo-Acro-DeltaRoll                      #三角队横滚
++menu/autoDemo-Acro-TightTurn                      #小半径急转弯
++menu/autoDemo-Acro-360AndLoop                     #360度转弯接筋斗
++menu/autoDemo-Acro-BombBurstUpward4               #向上空中开花（4机）
++menu/autoDemo-Acro-BombBurstUpward6               #向上空中开花（6机）
++menu/autoDemo-Acro-ChangeOverTurn                 #交叉换位转弯
++menu/autoDemo-Acro-TrailToDiamondRoll             #纵队转菱形横滚
++menu/autoDemo-Acro-CubanEight                     #古巴八字
++menu/autoDemo-Acro-DeltaLoopAndBonton             #三角队筋斗接邦顿机动
++menu/autoDemo-Acro-BontonRoll                     #邦顿横滚
++menu/autoDemo-Acro-BombBurstDownward4             #向下空中开花（4机）
++menu/autoDemo-Acro-BombBurstDownward6             #向下空中开花（6机）
++menu/autoDemo-Acro-RainFall                       #落雨
++menu/autoDemo-Acro-RollingCombatPitch             #滚转战斗跃升
++menu/autoDemo-Acro-DiamondTakeOff                 #菱形编队起飞
++menu/autoDemo-Acro-ContinuousRoll                 #连续横滚
++menu/autoDemo-Acro-RollOnTakeOffHalfCuban         #起飞横滚接半古巴八字
++menu/autoDemo-Acro-TackCrossVertRoll              #交叉通场接垂直爬升横滚
++menu/autoDemo-Acro-BigHeart                       #大心形
++menu/autoDemo-Acro-LevelBreak                     #水平散开
++menu/autoDemo-Acro-RollBackToArrowhead            #横滚归位箭形编队
++menu/autoDemo-Acro-PitchUpBreak                   #跃升散开
++menu/autoDemo-Acro-RockWingGearDown               #摇翼（放起落架）
++menu/autoDemo-Acro-RockWingClean                  #摇翼（光洁构型）
++menu/autoDemo-Acro-LetterEight                    #八字
++menu/autoDemo-Acro-StarCross                      #星形交叉
++menu/autoDemo-Acro-LevelOpener                    #水平开花
++menu/autoDemo-Acro-FormBreak                      #编队散开
++menu/autoDemo-Acro-LineAbreastRoll                #横队横滚
++menu/autoDemo-Acro-LineAbreastLoop                #横队筋斗
++menu/autoDemo-Acro-DoubleFarvel                   #双机倒飞通场
++menu/autoDemo-Acro-Dia9ToSwan                     #菱形九机转天鹅编队
++menu/autoDemo-Acro-SwanToApolloRoll               #天鹅编队转阿波罗横滚
++menu/autoDemo-Acro-LancasterTo5-4Split            #兰开斯特编队转5-4分离
++menu/autoDemo-Acro-ChampaignSplit                 #香槟分离
++menu/autoDemo-Acro-VixenBreak                     #维克森散开
++menu/autoDemo-Acro-BigBattleToShortDiaLoop        #大战斗编队转短菱形筋斗
++menu/networkMenu                                  #网络
++menu/network-Server                               #服务器
++menu/network-Client                               #客户端
++menu/network-Config                               #网络设置
++menu/flightRecUtilMenu                            #飞行记录工具
++menu/flightRecUtil-TimeInterval                   #设置时间间隔
++menu/flightRecUtil-SpacePrecision                 #设置空间精度
++menu/flightRecUtil-EditRecord                     #编辑飞行记录
++menu/helpMenu                                     #帮助
++menu/help-HelpEnglish                             #帮助 - 英文
++menu/help-DefKeyEnglish                           #默认按键与操纵分配表 - 英文
++menu/help-HelpJapanese                            #帮助 - 日文
++menu/help-DefKeyJapanese                          #默认按键与操纵分配表 - 日文
++menu/help-About                                   #关于 YSFLIGHT
++menu/help-SupportYSFlight                         #支持 YSFLIGHT 项目
++menu/learning                                     #机器学习
++menu/learning/trainAutoPilot                      #生成自动驾驶训练数据
++joycalib_calib                                    #校准各轴
++joycalib_calibhat                                 #校准帽形开关
++joycalib_fileexit                                 #退出
++joycalib_caliberase                               #清除全部校准数据
++joycalib_hatneutral                               #请松开帽形开关，使其回到中位，然后按空格键
++joycalib_hat0deg                                  #请将帽形开关推向前方（或上方），然后按空格键
++joycalib_hat90deg                                 #请将帽形开关推向右侧，然后按空格键
++joycalib_hat180deg                                #请将帽形开关推向后方（或下方），然后按空格键
++joycalib_hat270deg                                #请将帽形开关推向左侧，然后按空格键
++joycalib_axiscycle                                #请将该轴在可动范围内来回推到底数次，然后按空格键
++joycalib_axisneutral                              #请让该轴回到中位，然后按空格键
++joycalib_stickcircle                              #请用操纵杆在整个可动范围内画几个完整的圆，然后按空格键
++joycalib_stickneutral                             #请让操纵杆回到中位，然后按空格键
++joycalib_next                                     #下一步 >>
++net/versionconflict                               #服务器的网络协议版本\n与此客户端不一致。\n请使用与服务器\n相同版本的 YSFLIGHT。
