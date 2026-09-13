@@ -963,7 +963,14 @@ void FsSet2DDrawing(void)
 // report the HUD texture size for the duration of the off-screen HUD pass, so
 // pixel-space HUD placement lands on the HUD texture.  (fssimplewindow stays
 // dependency-free of fsvr; only the engine, which links both, bridges them.)
+#ifdef __EMSCRIPTEN__
 extern "C" void FsSetWindowSizeOverride(int active,int w,int h);
+#else
+// Desktop builds have no WebXR framebuffer-size override.
+static void FsSetWindowSizeOverride(int,int,int)
+{
+}
+#endif
 
 void FsVrBeginHudRender(void)
 {
@@ -1217,12 +1224,16 @@ void FsVrEndGuiRender(void)
 // keyboard-focused text box" (the aircraft-select search box, the lobby
 // user-name box, ...).  The web layer reads it each frame to summon the
 // headset's system keyboard -- see fswebxr.cpp's text-input bridge.
+#ifdef __EMSCRIPTEN__
 extern void (*fsGuiTextBoxFocusDrawnHook)(void);
+#endif
 static int fsVrMenuTextInputPending=0;
+#ifdef __EMSCRIPTEN__
 static void FsVrMenuTextBoxFocusDrawn(void)
 {
 	fsVrMenuTextInputPending=1;
 }
+#endif
 
 void FsVrBeginMenuRender(void)
 {
@@ -1234,7 +1245,9 @@ void FsVrBeginMenuRender(void)
 	FsSetWindowSizeOverride(1,texW,texH);
 	glBindFramebuffer(GL_FRAMEBUFFER,menuFbo);
 	FsVrSetMenuPassActive(1);
+#ifdef __EMSCRIPTEN__
 	fsGuiTextBoxFocusDrawnHook=FsVrMenuTextBoxFocusDrawn;
+#endif
 	fsVrMenuTextInputPending=0;
 }
 
