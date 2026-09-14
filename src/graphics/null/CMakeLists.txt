@@ -7,6 +7,7 @@ set(TARGET_NAME ysflight_graphics_null)
 set(LIB_DEPENDENCY ysflight_common ysflight_graphics_common ysflight_core geblkernel geblgl geblgl_nownd ysglcpp ysglcpp_nownd ysclass ysbitmap fsguilib ysbitmapfont ysfontrenderer ysnullsystemfont ystexturemanager_nownd ystexturemanager ysscenery_dnm yssystemfont)
 
 set(SRCS
+../common/fsvr_stub.cpp
 fsblackoutnownd.cpp
 fscloudnownd.cpp
 fsexistencenownd.cpp

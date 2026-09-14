@@ -7,6 +7,7 @@ set(TARGET_NAME ysflight_graphics_d3d9)
 set(LIB_DEPENDENCY geblkernel geblgl ysflight_common ysflight_core ysglcpp_d3d9 ysflight_graphics_common ysclass fssimplewindow ysd3d9 ysbitmap fsguilib ysbitmapfont ysfontrenderer yssystemfont ystexturemanager_d3d9 ystexturemanager ysscenery_dnm)
 
 set(SRCS
+../common/fsvr_stub.cpp
 fsblackoutd3d.cpp
 fscloudd3d.cpp
 fsd3d.cpp
