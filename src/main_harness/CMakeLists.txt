@@ -196,7 +196,8 @@ endif()
 
 
 if(MSVC)
-	set(platform_SRCS hotasrc.rc)
+	# The headless harness has no Windows icon resource.
+	set(platform_SRCS "")
 	set(platform_HEADERS "")
 elseif(APPLE)
 	set(platform_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../platform/macosx/APPL.icns)
@@ -393,6 +394,5 @@ if(DATA_FILE_LOCATION)
 endif()
 
 #YSEND
-
 
 
