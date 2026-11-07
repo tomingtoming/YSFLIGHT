@@ -6444,6 +6444,34 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 	// web layer's dial redraws on any change in this block.
 	if(0!=FsVrIsActive())
 	{
+		// Player-aircraft pose for hosts that attach their own objects to it
+		// (fsvr.h FsVrPlayerPoseDataPointer).
+		{
+			float *pose=FsVrPlayerPoseDataPointer();
+			const FsAirplane *poseSrc=GetPlayerAirplane();
+			if(NULL!=poseSrc)
+			{
+				YsMatrix4x4 zFlip;
+				zFlip.Scale(1.0,1.0,-1.0);
+				const YsMatrix4x4 m=zFlip*poseSrc->GetMatrix()*zFlip;
+				GLfloat mat[16];
+				m.GetOpenGlCompatibleMatrix(mat);
+				pose[0]=1.0f;
+				for(int i=0; i<16; ++i)
+				{
+					pose[1+i]=(float)mat[i];
+				}
+				const YsVec3 cockpit=poseSrc->Prop().GetCockpitPosition();
+				pose[17]=(float)cockpit.x();
+				pose[18]=(float)cockpit.y();
+				pose[19]=(float)-cockpit.z();
+			}
+			else
+			{
+				pose[0]=0.0f;
+			}
+		}
+
 		float *vrState=FsVrAircraftStateDataPointer();
 		const FsAirplane *playerPlane=GetPlayerAirplane();
 		if(NULL!=playerPlane)

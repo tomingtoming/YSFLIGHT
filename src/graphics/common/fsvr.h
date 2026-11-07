@@ -430,6 +430,17 @@ extern "C"
 	                   presents eyes separately.
 	      [2..7] reserved, always 0 */
 	float *FsVrExternalViewDataPointer(void);
+	/*! Player-aircraft pose block (24 floats), written once per sim frame by
+	    FsSimulation::SimDrawAllScreen while VR is active, for hosts that place
+	    their own objects (a seat, an avatar) on the player's aircraft.
+	      [0]      valid (0/1; 0 when there is no player airplane)
+	      [1..16]  aircraft frame -> world, GL convention (right-handed,
+	               z = -engineZ), column-major: Z * M_engine * Z with
+	               Z = diag(1,1,-1), M_engine = FsExistence::GetMatrix()
+	      [17..19] cockpit (pilot eye) position in the AIRCRAFT frame, GL
+	               convention (x, y, -z of FsVehicleProperty::GetCockpitPosition)
+	      [20..23] reserved, always 0 */
+	float *FsVrPlayerPoseDataPointer(void);
 }
 
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:
