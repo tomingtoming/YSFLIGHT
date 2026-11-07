@@ -7111,8 +7111,18 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		// with the whole viewpoint (viewMat AND viewPoint/viewAttitude, which
 		// drive culling, particle sorting, cloud checks and the GL camera)
 		// composed with the head-tracked eye-view transform.
+		// External view (fsvr.h FsVrExternalViewDataPointer): a host that
+		// owns the camera supplies ABSOLUTE world->eye matrices and may ask
+		// for a single eye per Draw() call.
+		const float *extView=FsVrExternalViewDataPointer();
+		const int extViewActive=(0.0f!=extView[0] ? 1 : 0);
+		const int extEyeMask=(int)extView[1];
 		for(int eye=0; eye<FsVrNumEye; ++eye)
 		{
+			if(0!=extViewActive && 0!=extEyeMask && 0==(extEyeMask&(1<<eye)))
+			{
+				continue;
+			}
 			FsSetActiveSplitWindow(eye);
 
 			ActualViewMode eyeViewMode=mainWindowActualViewMode;
@@ -7125,7 +7135,14 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			YsMatrix4x4 zFlip;
 			zFlip.Scale(1.0,1.0,-1.0);
 
-			eyeViewMode.viewMat=zFlip*eyeTfm*zFlip*eyeViewMode.viewMat;
+			if(0!=extViewActive)
+			{
+				eyeViewMode.viewMat=zFlip*eyeTfm*zFlip;
+			}
+			else
+			{
+				eyeViewMode.viewMat=zFlip*eyeTfm*zFlip*eyeViewMode.viewMat;
+			}
 
 			YsMatrix4x4 camToWorld=eyeViewMode.viewMat;
 			if(YSOK==camToWorld.Invert())

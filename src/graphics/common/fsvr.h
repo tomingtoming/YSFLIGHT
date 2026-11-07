@@ -416,6 +416,20 @@ extern "C"
 	    FsVrBlackoutOverridePointer (the reader, read by SimDrawAllScreen). */
 	float *FsVrBlackoutOverridePointer(void);
 	void FsVrSetBlackoutOverride(int active,float r,float g,float b,float alpha);
+	/*! External-view block (8 floats) for hosts that own the camera (e.g.
+	    ysflight-xrift, where the engine draws into a three.js/WebXR frame
+	    whose camera is the platform's).  Read by FsSimulation::SimDrawAllScreen's
+	    per-eye (non-multiview) VR branch while FsVrIsActive.
+	      [0] enable   (0/1).  While nonzero, each eye's view matrix
+	                   (FsVrEyeViewMatrix) is taken as the ABSOLUTE world->eye
+	                   transform in the engine's GL-convention world (x right,
+	                   y up, z = -engineZ), replacing the simulation's own
+	                   viewpoint instead of being composed on top of it.
+	      [1] eyeMask  (bit0 = eye 0, bit1 = eye 1; 0 = all eyes).  Lets the
+	                   host draw one eye per Draw() call when its renderer
+	                   presents eyes separately.
+	      [2..7] reserved, always 0 */
+	float *FsVrExternalViewDataPointer(void);
 }
 
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:

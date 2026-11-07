@@ -29,6 +29,12 @@ static float fsVrEyeData[FsVrNumEye][24]=
 	FSVR_EYEDATA_INIT
 };
 static int fsVrSimDrawnFrame=0;
+static float fsVrExternalView[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrExternalViewDataPointer(void)
+{
+	return fsVrExternalView;
+}
 
 extern "C" int FsVrIsActive(void)
 {
