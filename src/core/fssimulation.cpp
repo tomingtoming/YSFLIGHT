@@ -7430,6 +7430,27 @@ void FsSimulation::SimDrawScreen(
 			// the legacy per-eye path's FIRST eye.
 			SimDrawShadowMap(actualViewMode);
 		}
+		else if(0.0f!=FsVrExternalViewDataPointer()[0] && cfgPtr->drawShadow==YSTRUE)
+		{
+			// External-view host (ysflight-xrift): the two eyes arrive as two
+			// separate Draw() calls, and between them the host renders its own
+			// scene on the same context, re-binding whatever it likes to the
+			// texture units -- including units 5+ that hold the cascades.  The
+			// shadow uniforms (program state) and the cascade textures from the
+			// first eye's pass are still valid; only the unit bindings are not.
+			// Re-bind them, otherwise the second eye samples the host's
+			// texture (or an incomplete one -> 0 -> everything in shadow): the
+			// "right eye dark, textures wrong" Quest report.
+			auto &commonTexture=FsCommonTexture::GetCommonTexture();
+			for(int i=0; i<commonTexture.GetMaxNumShadowMap(); ++i)
+			{
+				auto texUnit=commonTexture.GetShadowMapTexture(i);
+				if(nullptr!=texUnit)
+				{
+					texUnit->Bind(5+i);
+				}
+			}
+		}
 		// else: legacy per-eye second pass -- the light-space maps rendered
 		// in the first eye's pass are still bound and enabled; reuse them
 		// as-is (d1c414e's sharing), neither re-render nor disable.
