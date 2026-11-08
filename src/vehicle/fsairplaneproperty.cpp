@@ -10456,3 +10456,8 @@ const char *FsGetAirplaneCategoryString(FSAIRPLANECATEGORY cat)
 	}
 }
 
+
+YSBOOL FsAirplaneProperty::GetAfterburner(void) const
+{
+	return (YSTRUE==chHasAb && YSTRUE==staAb) ? YSTRUE : YSFALSE;
+}

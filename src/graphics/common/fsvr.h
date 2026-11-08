@@ -474,6 +474,13 @@ extern "C"
 	              pose block)  [19..21] cockpit in the aircraft frame, GL
 	      [22] FSNETTYPE  [23] reserved */
 	float *FsVrAirListDataPointer(void);
+	/*! Player flight data for a host-drawn HUD (16 floats), written with the
+	    aircraft state block while VR is active:
+	      [0] valid  [1] speed m/s  [2] altitude m  [3] heading rad
+	      [4] pitch rad  [5] bank rad  [6] vertical speed m/s  [7] throttle 0..1
+	      [8] afterburner 0/1  [9] gear 0..1  [10] brake 0/1  [11] flap 0..1
+	      [12] on ground 0/1  [13] AOA rad  [14] mach  [15] reserved */
+	float *FsVrFlightDataPointer(void);
 	/*! Aircraft identifier of air-list entry i ("" when out of range). */
 	const char *FsVrAirListIdentifier(int i);
 	/*! Engine side: writable 64-byte identifier buffer of entry i. */

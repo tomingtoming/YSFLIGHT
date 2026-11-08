@@ -415,3 +415,10 @@ extern "C" char *FsVrAirListNameBuf(int i)
 	}
 	return fsVrAirListName[i];
 }
+
+static float fsVrFlightData[16]={0.0f};
+
+extern "C" float *FsVrFlightDataPointer(void)
+{
+	return fsVrFlightData;
+}

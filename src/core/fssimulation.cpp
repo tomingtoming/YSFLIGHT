@@ -6514,6 +6514,36 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 
 		float *vrState=FsVrAircraftStateDataPointer();
 		const FsAirplane *playerPlane=GetPlayerAirplane();
+		{
+			// Host-drawn HUD source (fsvr.h FsVrFlightDataPointer).
+			float *fd=FsVrFlightDataPointer();
+			if(NULL!=playerPlane)
+			{
+				const FsAirplaneProperty &pr=playerPlane->Prop();
+				YsVec3 vel;
+				pr.GetVelocity(vel);
+				fd[0]=1.0f;
+				fd[1]=(float)pr.GetVelocity();
+				fd[2]=(float)playerPlane->GetPosition().y();
+				fd[3]=(float)playerPlane->GetAttitude().h();
+				fd[4]=(float)playerPlane->GetAttitude().p();
+				fd[5]=(float)playerPlane->GetAttitude().b();
+				fd[6]=(float)vel.y();
+				fd[7]=(float)pr.GetThrottle();
+				fd[8]=(YSTRUE==pr.GetAfterburner()) ? 1.0f : 0.0f;
+				fd[9]=(float)pr.GetLandingGear();
+				fd[10]=(YSTRUE==pr.GetBrake()) ? 1.0f : 0.0f;
+				fd[11]=(float)pr.GetFlap();
+				fd[12]=(YSTRUE==pr.IsOnGround()) ? 1.0f : 0.0f;
+				fd[13]=(float)pr.GetAOA();
+				fd[14]=(float)pr.GetMach();
+				fd[15]=0.0f;
+			}
+			else
+			{
+				fd[0]=0.0f;
+			}
+		}
 		if(NULL!=playerPlane)
 		{
 			vrState[0]=1.0f;

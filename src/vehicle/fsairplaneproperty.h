@@ -808,6 +808,8 @@ public:
 	const double &GetControlVgw(void) const;
 	YSBOOL GetAfterBurner(void) const;
 	YSBOOL GetHasAfterburner(void) const;
+	/*! Current afterburner state (ysflight-xrift: read by the host HUD). */
+	YSBOOL GetAfterburner(void) const;
 
 	YSBOOL GetHasThrustVectoring(void) const;
 	void GetThrustDirection(YsVec3 &dir) const;
