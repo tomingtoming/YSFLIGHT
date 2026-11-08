@@ -8642,6 +8642,23 @@ YSRESULT FsSimulation::ServerState_StandBy(
 		consCmd=svr.commandQueue.front();
 		svr.commandQueue.pop();
 	}
+	// ysflight-xrift: host-driven lobby, see the client counterpart.
+	if(FSNCC_COMMON_NULL==consCmd && 0==svr.choosingMode)
+	{
+		char vrAir[256],vrStp[256];
+		int vrIff=-1;
+		if(0!=FsVrNetTakeJoinRequest(vrAir,256,vrStp,256,&vrIff))
+		{
+			chooseAirplane.selAir.Set(vrAir);
+			chooseStartPosition.selStp.Set(vrStp);
+			if(0<=vrIff && vrIff<4)
+			{
+				svr.iff=(FSIFF)vrIff;
+			}
+			SetTerminate(YSFALSE);
+			consCmd=FSNCC_COMMON_JOIN;
+		}
+	}
 
 
 
@@ -8983,6 +9000,23 @@ void FsSimulation::RunServerModeTest(const char [],const char [],FsNetConfig &)
 void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 {
 	FsSocketServer &server=svrSta.svr;
+	// ysflight-xrift: session state for the host (fsvr.h) and the leave request.
+	{
+		float *ns=FsVrNetStateDataPointer();
+		ns[0]=1.0f;
+		ns[1]=(FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState) ? 1.0f : 0.0f;
+		ns[2]=(float)server.serverState;
+		ns[3]=0.0f;
+		const FsAirplane *pl=(1==server.serverState ? GetPlayerAirplane() : NULL);
+		ns[4]=(NULL!=pl) ? (float)FsExistence::GetSearchKey(pl) : -1.0f;
+		ns[5]=(float)NetServerGetNumConnectedUser();
+		ns[6]=(float)svrSta.runState;
+		ns[7]=(float)svrSta.fatalError;
+		if(0!=FsVrNetTakeLeaveRequest() && FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 1==server.serverState)
+		{
+			SetTerminate(YSTRUE);
+		}
+	}
 	FsFlightConfig &cfg=*server.cfg;
 
 	switch(svrSta.runState)
@@ -9973,6 +10007,24 @@ YSRESULT FsSimulation::ClientState_StandBy(
 		consCmd=cli.commandQueue.front();
 		cli.commandQueue.pop();
 	}
+	// ysflight-xrift: a host-driven lobby (fsvr.h FsVrNetRequestJoin) feeds the
+	// same JOIN command the console menu would, with its own selection.
+	if(FSNCC_COMMON_NULL==consCmd && 0==cli.choosingMode && cli.fieldReady==YSTRUE && cli.simReady==YSTRUE)
+	{
+		char vrAir[256],vrStp[256];
+		int vrIff=-1;
+		if(0!=FsVrNetTakeJoinRequest(vrAir,256,vrStp,256,&vrIff))
+		{
+			chooseAirplane.selAir.Set(vrAir);
+			chooseStartPosition.selStp.Set(vrStp);
+			if(0<=vrIff && vrIff<4)
+			{
+				cli.iff=(FSIFF)vrIff;
+			}
+			SetTerminate(YSFALSE);
+			consCmd=FSNCC_COMMON_JOIN;
+		}
+	}
 
 
 
@@ -10293,6 +10345,23 @@ YSRESULT FsSimulation::ClientState_SideWindow(const double &,class FsSocketClien
 
 void FsSimulation::RunClientModeOneStep(class FsClientRunLoop &cliSta)
 {
+	// ysflight-xrift: session state for the host (fsvr.h) and the leave request.
+	{
+		float *ns=FsVrNetStateDataPointer();
+		ns[0]=2.0f;
+		ns[1]=(cliSta.cli.fieldReady==YSTRUE && cliSta.cli.simReady==YSTRUE) ? 1.0f : 0.0f;
+		ns[2]=(float)cliSta.cli.clientState;
+		ns[3]=(cliSta.cli.waitingForJoiningApproval==YSTRUE) ? 1.0f : 0.0f;
+		const FsAirplane *pl=(1==cliSta.cli.clientState ? GetPlayerAirplane() : NULL);
+		ns[4]=(NULL!=pl) ? (float)FsExistence::GetSearchKey(pl) : -1.0f;
+		ns[5]=(cliSta.cli.IsConnected()==YSTRUE) ? 1.0f : 0.0f;
+		ns[6]=(float)cliSta.runState;
+		ns[7]=(float)cliSta.fatalError;
+		if(0!=FsVrNetTakeLeaveRequest() && FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 1==cliSta.cli.clientState)
+		{
+			SetTerminate(YSTRUE);
+		}
+	}
 #ifdef CRASHINVESTIGATION
 printf("%s %d\n",__FUNCTION__,__LINE__);
 #endif

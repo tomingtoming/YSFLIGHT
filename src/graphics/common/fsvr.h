@@ -441,7 +441,49 @@ extern "C"
 	               convention (x, y, -z of FsVehicleProperty::GetCockpitPosition)
 	      [20..23] reserved, always 0 */
 	float *FsVrPlayerPoseDataPointer(void);
+
+	/*! Network-lobby automation (ysflight-xrift).  A host that does not show
+	    the engine's 2D lobby can still drive -server / -client sessions:
+	    FsVrNetRequestJoin queues a join that the standby state of the client
+	    or server run loop turns into the ordinary JOIN command with the given
+	    aircraft identifier, start position and IFF (iff<0 keeps the current
+	    one); FsVrNetRequestLeave ends the current flight (the double-ESC
+	    path), after which the engine returns to standby by itself, exactly as
+	    it does when the aircraft is destroyed. */
+	void FsVrNetRequestJoin(const char air[],const char stp[],int iff);
+	void FsVrNetRequestLeave(void);
+	/*! Engine side of the above: fetch a queued request (1 = taken). */
+	int FsVrNetTakeJoinRequest(char air[],int airLen,char stp[],int stpLen,int *iff);
+	int FsVrNetTakeLeaveRequest(void);
+	/*! Network session state block (16 floats), written at the top of every
+	    client / server run-loop step:
+	      [0] mode: 0 none, 1 server, 2 client
+	      [1] ready: 1 once the lobby accepts commands
+	      [2] state: 0 standby, 1 flying, 2 side window / dispel, 3 ghost, -1 fatal
+	      [3] waiting for join approval (client)
+	      [4] player airplane search key, -1 if none
+	      [5] connected (client) / connected users (server)
+	      [6] run state (FsClientRunLoop / FsServerRunLoop enum)
+	      [7] fatal error code
+	      [8..15] reserved, always 0 */
+	float *FsVrNetStateDataPointer(void);
+	/*! All-aircraft pose list, written with the player pose while VR is
+	    active.  [0] = count (<= FsVrAirListMax); entry i starts at 1+i*24:
+	      [0] search key  [1] alive  [2] is the player's aircraft
+	      [3..18] frame -> world, GL convention, column-major (as the player
+	              pose block)  [19..21] cockpit in the aircraft frame, GL
+	      [22] FSNETTYPE  [23] reserved */
+	float *FsVrAirListDataPointer(void);
+	/*! Aircraft identifier of air-list entry i ("" when out of range). */
+	const char *FsVrAirListIdentifier(int i);
+	/*! Engine side: writable 64-byte identifier buffer of entry i. */
+	char *FsVrAirListIdentifierBuf(int i);
+	/*! Pilot / object name of air-list entry i (the player name in a network
+	    session; "" when out of range) and its writable 64-byte buffer. */
+	const char *FsVrAirListName(int i);
+	char *FsVrAirListNameBuf(int i);
 }
+#define FsVrAirListMax 64
 
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:
     sub-millisecond resolution under Emscripten (emscripten_get_now(), the

@@ -6472,6 +6472,46 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			}
 		}
 
+		// All-aircraft pose list for hosts that attach objects (seats) to
+		// every aircraft in the session (fsvr.h FsVrAirListDataPointer).
+		{
+			float *list=FsVrAirListDataPointer();
+			const FsAirplane *player=GetPlayerAirplane();
+			YsMatrix4x4 zFlip;
+			zFlip.Scale(1.0,1.0,-1.0);
+			int n=0;
+			const FsAirplane *air=NULL;
+			while(NULL!=(air=FindNextAirplane(air)) && n<FsVrAirListMax)
+			{
+				float *e=list+1+n*24;
+				e[0]=(float)FsExistence::GetSearchKey(air);
+				e[1]=(air->IsAlive()==YSTRUE) ? 1.0f : 0.0f;
+				e[2]=(air==player) ? 1.0f : 0.0f;
+				const YsMatrix4x4 m=zFlip*air->GetMatrix()*zFlip;
+				GLfloat mat[16];
+				m.GetOpenGlCompatibleMatrix(mat);
+				for(int i=0; i<16; ++i)
+				{
+					e[3+i]=(float)mat[i];
+				}
+				const YsVec3 cockpit=air->Prop().GetCockpitPosition();
+				e[19]=(float)cockpit.x();
+				e[20]=(float)cockpit.y();
+				e[21]=(float)-cockpit.z();
+				e[22]=(float)air->netType;
+				e[23]=0.0f;
+				char *id=FsVrAirListIdentifierBuf(n);
+				const char *src=air->GetIdentifier();
+				strncpy(id,(NULL!=src ? src : ""),63);
+				id[63]=0;
+				char *nm=FsVrAirListNameBuf(n);
+				strncpy(nm,air->name.Txt(),63);
+				nm[63]=0;
+				++n;
+			}
+			list[0]=(float)n;
+		}
+
 		float *vrState=FsVrAircraftStateDataPointer();
 		const FsAirplane *playerPlane=GetPlayerAirplane();
 		if(NULL!=playerPlane)

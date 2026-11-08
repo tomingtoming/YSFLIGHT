@@ -312,3 +312,106 @@ void FsVrGetEyeViewport(int eye,int &x0,int &y0,int &wid,int &hei)
 	wid=(int)eyeData[22];
 	hei=(int)eyeData[23];
 }
+
+// ---- Network-lobby automation (ysflight-xrift; see fsvr.h) -----------------
+
+static char fsVrNetJoinAir[256]="";
+static char fsVrNetJoinStp[256]="";
+static int fsVrNetJoinIff=-1;
+static int fsVrNetJoinPending=0;
+static int fsVrNetLeavePending=0;
+
+extern "C" void FsVrNetRequestJoin(const char air[],const char stp[],int iff)
+{
+	strncpy(fsVrNetJoinAir,(NULL!=air ? air : ""),sizeof(fsVrNetJoinAir)-1);
+	fsVrNetJoinAir[sizeof(fsVrNetJoinAir)-1]=0;
+	strncpy(fsVrNetJoinStp,(NULL!=stp ? stp : ""),sizeof(fsVrNetJoinStp)-1);
+	fsVrNetJoinStp[sizeof(fsVrNetJoinStp)-1]=0;
+	fsVrNetJoinIff=iff;
+	fsVrNetJoinPending=1;
+	fsVrNetLeavePending=0;
+}
+
+extern "C" void FsVrNetRequestLeave(void)
+{
+	fsVrNetLeavePending=1;
+	fsVrNetJoinPending=0;
+}
+
+extern "C" int FsVrNetTakeJoinRequest(char air[],int airLen,char stp[],int stpLen,int *iff)
+{
+	if(0==fsVrNetJoinPending)
+	{
+		return 0;
+	}
+	strncpy(air,fsVrNetJoinAir,airLen-1);
+	air[airLen-1]=0;
+	strncpy(stp,fsVrNetJoinStp,stpLen-1);
+	stp[stpLen-1]=0;
+	if(NULL!=iff)
+	{
+		*iff=fsVrNetJoinIff;
+	}
+	fsVrNetJoinPending=0;
+	return 1;
+}
+
+extern "C" int FsVrNetTakeLeaveRequest(void)
+{
+	const int r=fsVrNetLeavePending;
+	fsVrNetLeavePending=0;
+	return r;
+}
+
+static float fsVrNetState[16]={0.0f};
+
+extern "C" float *FsVrNetStateDataPointer(void)
+{
+	return fsVrNetState;
+}
+
+static float fsVrAirList[1+FsVrAirListMax*24]={0.0f};
+static char fsVrAirListId[FsVrAirListMax][64]={{0}};
+
+extern "C" float *FsVrAirListDataPointer(void)
+{
+	return fsVrAirList;
+}
+
+extern "C" const char *FsVrAirListIdentifier(int i)
+{
+	if(i<0 || FsVrAirListMax<=i)
+	{
+		return "";
+	}
+	return fsVrAirListId[i];
+}
+
+extern "C" char *FsVrAirListIdentifierBuf(int i)
+{
+	if(i<0 || FsVrAirListMax<=i)
+	{
+		i=0;
+	}
+	return fsVrAirListId[i];
+}
+
+static char fsVrAirListName[FsVrAirListMax][64]={{0}};
+
+extern "C" const char *FsVrAirListName(int i)
+{
+	if(i<0 || FsVrAirListMax<=i)
+	{
+		return "";
+	}
+	return fsVrAirListName[i];
+}
+
+extern "C" char *FsVrAirListNameBuf(int i)
+{
+	if(i<0 || FsVrAirListMax<=i)
+	{
+		i=0;
+	}
+	return fsVrAirListName[i];
+}
