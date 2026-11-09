@@ -452,6 +452,21 @@ extern "C" void FsVrLobbySetStp(int i,const char name[])
 		fsVrLobbyStp[i][63]=0;
 	}
 }
+static float fsVrLobbyStpPos[FsVrLobbyStpMax][3]={{0.0f}};
+extern "C" float *FsVrLobbyStpPos(int i)
+{
+	static float none[3]={0.0f,0.0f,0.0f};
+	return (0<=i && i<FsVrLobbyStpMax) ? fsVrLobbyStpPos[i] : none;
+}
+extern "C" void FsVrLobbySetStpPos(int i,float x,float y,float z)
+{
+	if(0<=i && i<FsVrLobbyStpMax)
+	{
+		fsVrLobbyStpPos[i][0]=x;
+		fsVrLobbyStpPos[i][1]=y;
+		fsVrLobbyStpPos[i][2]=z;
+	}
+}
 extern "C" void FsVrLobbySetCounts(int nAir,int nStp)
 {
 	fsVrLobbyNumAir=(nAir<0 ? 0 : (FsVrLobbyAirMax<nAir ? FsVrLobbyAirMax : nAir));

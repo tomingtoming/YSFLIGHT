@@ -9007,7 +9007,7 @@ void FsSimulation::RunServerModeTest(const char [],const char [],FsNetConfig &)
 // ysflight-xrift: publish the chooser lists (fsvr.h FsVrLobby*) once the
 // field is loaded -- every aircraft template and the field's start positions.
 static int fsVrLobbyFilled=0;
-static void FsVrFillLobby(const FsWorld *world,const char fld[])
+static void FsVrFillLobby(FsWorld *world,const char fld[])
 {
 	if(0!=fsVrLobbyFilled || NULL==world)
 	{
@@ -9032,6 +9032,14 @@ static void FsVrFillLobby(const FsWorld *world,const char fld[])
 			break;
 		}
 		FsVrLobbySetStp(ns,stp);
+		FsStartPosInfo info;
+		YsVec3 pos=YsVec3::Origin();
+		YsAtt3 att;
+		if(YSOK==world->GetStartPositionInfo(info,fld,stp))
+		{
+			info.InterpretPosition(pos,att);
+		}
+		FsVrLobbySetStpPos(ns,(float)pos.x(),(float)pos.y(),(float)-pos.z());
 	}
 	FsVrLobbySetCounts(na,ns);
 	fsVrLobbyFilled=1;
@@ -10350,6 +10358,7 @@ YSRESULT FsSimulation::ClientState_StandBy(
 		{
 			fsConsole.Printf("Request Rejected by the Server.");
 			cli.waitingForJoiningApproval=YSFALSE;
+			FsVrNetStateDataPointer()[8]+=1.0f; // ysflight-xrift: let the host's lobby UI say so
 		}
 	}
 

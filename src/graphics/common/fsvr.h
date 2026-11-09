@@ -465,7 +465,8 @@ extern "C"
 	      [5] connected (client) / connected users (server)
 	      [6] run state (FsClientRunLoop / FsServerRunLoop enum)
 	      [7] fatal error code
-	      [8..15] reserved, always 0 */
+	      [8] join requests the server rejected (client mode; counts up)
+	      [9..15] reserved, always 0 */
 	float *FsVrNetStateDataPointer(void);
 	/*! All-aircraft pose list, written with the player pose while VR is
 	    active.  [0] = count (<= FsVrAirListMax); entry i starts at 1+i*24:
@@ -507,6 +508,12 @@ extern "C"
 	void FsVrLobbySetAir(int i,const char name[]);
 	void FsVrLobbySetStp(int i,const char name[]);
 	void FsVrLobbySetCounts(int nAir,int nStp);
+	/* Start position i in GL convention (x, y, -z of the engine world),
+	   the same frame as the all-aircraft list: lets a host mark start
+	   positions an aircraft is standing on (the server rejects a join
+	   there) and default to a free one. */
+	float *FsVrLobbyStpPos(int i);
+	void FsVrLobbySetStpPos(int i,float x,float y,float z);
 	/* Ground probe: the host writes a GL-convention (x, z) in [0],[1]; the
 	   network run loops answer the field elevation at that point in [2] and
 	   set [3] to 1 while a field is loaded.  Lets a host align its own
