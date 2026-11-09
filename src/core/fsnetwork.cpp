@@ -8997,6 +8997,93 @@ void FsSimulation::RunServerModeTest(const char [],const char [],FsNetConfig &)
 {
 }
 
+// ysflight-xrift: "standing on the field".  While the lobby is in standby (no
+// player aircraft) under an external-view host, the host's eye 0 becomes the
+// simulation viewpoint: FSGHOSTVIEW makes SimDecideViewpoint keep the
+// viewPoint/viewAttitude set here, and PrepareRenderView (run right after the
+// physics step) derives fog, cloud and shadow state from them, so the scene
+// draw below sees the airfield from where the avatar stands.  Returns the
+// ghost view on the way into standby and a cockpit view on the way out.
+// ysflight-xrift: publish the chooser lists (fsvr.h FsVrLobby*) once the
+// field is loaded -- every aircraft template and the field's start positions.
+static int fsVrLobbyFilled=0;
+static void FsVrFillLobby(const FsWorld *world,const char fld[])
+{
+	if(0!=fsVrLobbyFilled || NULL==world)
+	{
+		return;
+	}
+	int na=0;
+	for(; na<FsVrLobbyAirMax; ++na)
+	{
+		const char *nm=world->GetAirplaneTemplateName(na);
+		if(NULL==nm)
+		{
+			break;
+		}
+		FsVrLobbySetAir(na,nm);
+	}
+	int ns=0;
+	for(; ns<FsVrLobbyStpMax; ++ns)
+	{
+		YsString stp;
+		if(YSOK!=world->GetFieldStartPositionName(stp,fld,ns))
+		{
+			break;
+		}
+		FsVrLobbySetStp(ns,stp);
+	}
+	FsVrLobbySetCounts(na,ns);
+	fsVrLobbyFilled=1;
+}
+
+// ysflight-xrift: answer the host's ground probe (fsvr.h) from the field.
+static void FsVrAnswerGroundProbe(const FsSimulation *sim)
+{
+	float *gp=FsVrGroundProbeDataPointer();
+	if(NULL!=sim->GetField())
+	{
+		// Host (x, z) is GL-convention; the engine's z runs the other way.
+		gp[2]=(float)sim->GetFieldElevation((double)gp[0],-(double)gp[1]);
+		gp[3]=1.0f;
+	}
+	else
+	{
+		gp[3]=0.0f;
+	}
+}
+
+static void FsVrFieldStandbyView(YsVec3 &viewPoint,YsAtt3 &viewAttitude,double &viewTargetDist,FsSimulation::FSVIEWMODE &mode,int standby)
+{
+	if(0.0f==FsVrExternalViewDataPointer()[0])
+	{
+		return;
+	}
+	if(0==standby)
+	{
+		if(FsSimulation::FSGHOSTVIEW==mode)
+		{
+			mode=FsSimulation::FSCOCKPITVIEW;
+		}
+		return;
+	}
+	YsMatrix4x4 eyeTfm;
+	eyeTfm.CreateFromOpenGlCompatibleMatrix(FsVrEyeViewMatrix(0));
+	YsMatrix4x4 zFlip;
+	zFlip.Scale(1.0,1.0,-1.0);
+	YsMatrix4x4 camToWorld=zFlip*eyeTfm*zFlip;
+	if(YSOK==camToWorld.Invert())
+	{
+		YsVec3 fwd,up;
+		camToWorld.Mul(fwd,YsZVec(),0.0);
+		camToWorld.Mul(up,YsYVec(),0.0);
+		viewPoint=camToWorld*YsOrigin();
+		viewAttitude.SetTwoVector(fwd,up);
+		viewTargetDist=50.0;
+		mode=FsSimulation::FSGHOSTVIEW;
+	}
+}
+
 void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 {
 	FsSocketServer &server=svrSta.svr;
@@ -9015,6 +9102,17 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 		if(0!=FsVrNetTakeLeaveRequest() && FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 1==server.serverState)
 		{
 			SetTerminate(YSTRUE);
+		}
+		FsVrFieldStandbyView(mainWindowActualViewMode.viewPoint,mainWindowActualViewMode.viewAttitude,mainWindowActualViewMode.viewTargetDist,mainWindowViewmode,
+		    (FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState && 0==server.choosingMode) ? 1 : 0);
+		FsVrAnswerGroundProbe(this);
+		if(0==fsVrLobbyFilled && FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && NULL!=GetField())
+		{
+			YsString fld;
+			YsVec3 fldPos;
+			YsAtt3 fldAtt;
+			GetLoadedField(fld,fldPos,fldAtt);
+			FsVrFillLobby(world,fld);
 		}
 	}
 	FsFlightConfig &cfg=*server.cfg;
@@ -9631,6 +9729,15 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 	// whole 2D lobby -- INITIALIZE1..3 draw NOTHING even in flat play -- so
 	// on device the session showed stale projection-layer buffers ("demo
 	// screen flicker") for ~1.4s and then ended.
+	// ysflight-xrift: external-view host in lobby standby draws the scene
+	// (the player stands on the field), not the 2D console.  The viewpoint
+	// was set from the host's eyes on the Run side (FsVrFieldStandbyView).
+	if(0.0f!=FsVrExternalViewDataPointer()[0] &&
+	   FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState && 0==server.choosingMode)
+	{
+		SimDrawAllScreen(YSFALSE,YSFALSE,YSFALSE);
+		return;
+	}
 	const YSBOOL inSim=(FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0!=server.serverState) ? YSTRUE : YSFALSE;
 	const int vrMenuPass=(0!=FsVrIsActive() && YSTRUE!=inSim) ? 1 : 0;
 	if(0!=vrMenuPass)
@@ -10361,6 +10468,18 @@ void FsSimulation::RunClientModeOneStep(class FsClientRunLoop &cliSta)
 		{
 			SetTerminate(YSTRUE);
 		}
+		FsVrFieldStandbyView(mainWindowActualViewMode.viewPoint,mainWindowActualViewMode.viewAttitude,mainWindowActualViewMode.viewTargetDist,mainWindowViewmode,
+		    (FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState && 0==cliSta.cli.choosingMode &&
+		     YSTRUE==cliSta.cli.fieldReady && YSTRUE==cliSta.cli.simReady) ? 1 : 0);
+		FsVrAnswerGroundProbe(this);
+		if(0==fsVrLobbyFilled && YSTRUE==cliSta.cli.fieldReady && NULL!=GetField())
+		{
+			YsString fld;
+			YsVec3 fldPos;
+			YsAtt3 fldAtt;
+			GetLoadedField(fld,fldPos,fldAtt);
+			FsVrFillLobby(world,fld);
+		}
 	}
 #ifdef CRASHINVESTIGATION
 printf("%s %d\n",__FUNCTION__,__LINE__);
@@ -10829,6 +10948,15 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 	// field report).  The in-simulation branch (clientState!=0) keeps the
 	// normal 3D multiview path, which feeds the watchdog itself
 	// (SimDrawAllScreen).
+	// ysflight-xrift: see DrawInServerMode -- standby draws the field from
+	// the host's eyes once the field and simulation have arrived.
+	if(0.0f!=FsVrExternalViewDataPointer()[0] &&
+	   FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState && 0==cliSta.cli.choosingMode &&
+	   YSTRUE==cliSta.cli.fieldReady && YSTRUE==cliSta.cli.simReady)
+	{
+		SimDrawAllScreen(YSFALSE,YSFALSE,YSFALSE);
+		return;
+	}
 	const YSBOOL inSim=(FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0!=cliSta.cli.clientState) ? YSTRUE : YSFALSE;
 	const int vrMenuPass=(0!=FsVrIsActive() && YSTRUE!=inSim) ? 1 : 0;
 	if(0!=vrMenuPass)

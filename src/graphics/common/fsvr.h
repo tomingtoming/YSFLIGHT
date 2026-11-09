@@ -492,6 +492,32 @@ extern "C"
 }
 #define FsVrAirListMax 64
 
+	/* ysflight-xrift lobby lists (hosts that offer the aircraft / start-
+	   position chooser in-world): every aircraft template, and the loaded
+	   field's start positions.  Filled once by the network run loops when the
+	   field is ready; names are the identifiers the join request takes. */
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+	int FsVrLobbyAirCount(void);
+	const char *FsVrLobbyAirName(int i);
+	int FsVrLobbyStpCount(void);
+	const char *FsVrLobbyStpName(int i);
+	void FsVrLobbySetAir(int i,const char name[]);
+	void FsVrLobbySetStp(int i,const char name[]);
+	void FsVrLobbySetCounts(int nAir,int nStp);
+	/* Ground probe: the host writes a GL-convention (x, z) in [0],[1]; the
+	   network run loops answer the field elevation at that point in [2] and
+	   set [3] to 1 while a field is loaded.  Lets a host align its own
+	   walkable floor with the engine's terrain. */
+	float *FsVrGroundProbeDataPointer(void);
+#ifdef __cplusplus
+}
+#endif
+#define FsVrLobbyAirMax 512
+#define FsVrLobbyStpMax 128
+
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:
     sub-millisecond resolution under Emscripten (emscripten_get_now(), the
     same clock fslazywindow_emscripten.cpp's tick EMA already uses) and a

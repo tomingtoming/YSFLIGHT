@@ -416,6 +416,54 @@ extern "C" char *FsVrAirListNameBuf(int i)
 	return fsVrAirListName[i];
 }
 
+static char fsVrLobbyAir[FsVrLobbyAirMax][64]={{0}};
+static char fsVrLobbyStp[FsVrLobbyStpMax][64]={{0}};
+static int fsVrLobbyNumAir=0,fsVrLobbyNumStp=0;
+
+extern "C" int FsVrLobbyAirCount(void)
+{
+	return fsVrLobbyNumAir;
+}
+extern "C" const char *FsVrLobbyAirName(int i)
+{
+	return (0<=i && i<fsVrLobbyNumAir) ? fsVrLobbyAir[i] : "";
+}
+extern "C" int FsVrLobbyStpCount(void)
+{
+	return fsVrLobbyNumStp;
+}
+extern "C" const char *FsVrLobbyStpName(int i)
+{
+	return (0<=i && i<fsVrLobbyNumStp) ? fsVrLobbyStp[i] : "";
+}
+extern "C" void FsVrLobbySetAir(int i,const char name[])
+{
+	if(0<=i && i<FsVrLobbyAirMax)
+	{
+		strncpy(fsVrLobbyAir[i],(NULL!=name ? name : ""),63);
+		fsVrLobbyAir[i][63]=0;
+	}
+}
+extern "C" void FsVrLobbySetStp(int i,const char name[])
+{
+	if(0<=i && i<FsVrLobbyStpMax)
+	{
+		strncpy(fsVrLobbyStp[i],(NULL!=name ? name : ""),63);
+		fsVrLobbyStp[i][63]=0;
+	}
+}
+extern "C" void FsVrLobbySetCounts(int nAir,int nStp)
+{
+	fsVrLobbyNumAir=(nAir<0 ? 0 : (FsVrLobbyAirMax<nAir ? FsVrLobbyAirMax : nAir));
+	fsVrLobbyNumStp=(nStp<0 ? 0 : (FsVrLobbyStpMax<nStp ? FsVrLobbyStpMax : nStp));
+}
+
+static float fsVrGroundProbe[4]={0.0f,0.0f,0.0f,0.0f};
+extern "C" float *FsVrGroundProbeDataPointer(void)
+{
+	return fsVrGroundProbe;
+}
+
 static float fsVrFlightData[16]={0.0f};
 
 extern "C" float *FsVrFlightDataPointer(void)
