@@ -7215,6 +7215,22 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 		const float *extView=FsVrExternalViewDataPointer();
 		const int extViewActive=(0.0f!=extView[0] ? 1 : 0);
 		const int extEyeMask=(int)extView[1];
+
+		// ysflight-xrift: the real flat HUD for an external-view host.  The
+		// host publishes a plain 2D RGBA framebuffer in the HUD block (fsvr.h
+		// FsVrHudDataPointer; only [0] enable, [1] fbo, [3] width, [4] height
+		// are read here) and the HUD is rendered into it once per Draw() --
+		// the host then shows that texture on its own cockpit-anchored glass.
+		// The engine's own composite quad (FsVrDrawHudQuad) is multiview-only
+		// and is not used on this path.  Same FSCOCKPITVIEW gate as the
+		// single-pass branch: outside the cockpit the symbology is meaningless.
+		if(0!=extViewActive && mainWindowActualViewMode.actualViewMode==FSCOCKPITVIEW && 0.0f!=FsVrHudDataPointer()[0])
+		{
+			FsVrBeginHudRender();
+			SimDrawVrHud(cockpitIndicationSet,mainWindowActualViewMode,demoMode);
+			FsVrEndHudRender();
+		}
+
 		for(int eye=0; eye<FsVrNumEye; ++eye)
 		{
 			if(0!=extViewActive && 0!=extEyeMask && 0==(extEyeMask&(1<<eye)))
