@@ -13708,8 +13708,13 @@ double FsSimulation::PassedTime(void)  // <- This function must wait at least 0.
 	// of travel back and forth each frame (18 cm at 350 kt) against a view
 	// placed by a continuous clock: visible judder in the cockpit (2026-11-10).
 	// No busy-wait either: a 90/120 Hz headset frame is shorter than 10 ms.
+	// The host's frame timestamp when it provides one (fsvr.h
+	// FsVrSetFrameTimeMs): vsync-aligned, so consecutive steps are as even
+	// as the display.  The wall clock read here carries the jitter of when
+	// this call happens to run inside the frame.
 	static double lastNowMs=-1.0;
-	const double nowMs=emscripten_get_now();
+	const double hostMs=FsVrFrameTimeMs();
+	const double nowMs=(0.0<=hostMs ? hostMs : emscripten_get_now());
 	double passed=(lastNowMs<0.0) ? 0.02 : (nowMs-lastNowMs)/1000.0;
 	lastNowMs=nowMs;
 	if(passed<0.0005)

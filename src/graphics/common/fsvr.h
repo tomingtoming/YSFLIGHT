@@ -463,6 +463,28 @@ extern "C"
 	      [17..23] reserved, always 0 */
 	float *FsVrPlayerVisualDataPointer(void);
 
+	/*! The host's frame clock (ysflight-xrift).  A host that steps the
+	    simulation once per displayed frame hands the frame's own timestamp
+	    (milliseconds, fractional, any fixed origin: the vsync-aligned
+	    requestAnimationFrame time, or an XR frame's predicted display time)
+	    before each step, and FsSimulation::PassedTime advances by the
+	    difference.  Reading the wall clock at the moment of the call
+	    instead adds the scheduling jitter of that call inside the frame
+	    (about half a millisecond: centimetres of travel per frame at
+	    speed) to every step.  Negative (the default) = not provided, the
+	    simulation reads the wall clock itself. */
+	void FsVrSetFrameTimeMs(double ms);
+	double FsVrFrameTimeMs(void);
+
+	/*! Version of the shared-memory layout in this header.  Bump
+	    FSVR_ABI_VERSION whenever a block's meaning or size changes; the
+	    host compares it with the number it was written against and refuses
+	    to run on a mismatch instead of misreading floats.
+	      2: control [11] rudderDriven, flight [15] rudder, player-visual
+	         block, frame clock. */
+	#define FSVR_ABI_VERSION 2
+	int FsVrAbiVersion(void);
+
 	/*! Network-lobby automation (ysflight-xrift).  A host that does not show
 	    the engine's 2D lobby can still drive -server / -client sessions:
 	    FsVrNetRequestJoin queues a join that the standby state of the client

@@ -49,6 +49,21 @@ extern "C" float *FsVrPlayerVisualDataPointer(void)
 	return fsVrPlayerVisual;
 }
 
+static double fsVrFrameTimeMs=-1.0;
+extern "C" void FsVrSetFrameTimeMs(double ms)
+{
+	fsVrFrameTimeMs=ms;
+}
+extern "C" double FsVrFrameTimeMs(void)
+{
+	return fsVrFrameTimeMs;
+}
+
+extern "C" int FsVrAbiVersion(void)
+{
+	return FSVR_ABI_VERSION;
+}
+
 extern "C" int FsVrIsActive(void)
 {
 	return fsVrActive;
