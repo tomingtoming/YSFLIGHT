@@ -68,7 +68,14 @@
 //                              not grabbing" from "controller asleep, block
 //                              holding its last write".)
 //   [10] leftHandTracked      (0 or 1; left-hand counterpart of [9])
-//   [11..15] reserved, always 0
+//   [11] rudderDriven         (0 or 1; the writer's stick also drives the
+//                              rudder through [3] -- a VR hand's twist.  A
+//                              stick that has no yaw axis (keyboard arrows,
+//                              a mouse stick) leaves this 0 so the engine's
+//                              own rudder keys (Z/X/C) stay in force while
+//                              [0]/[8] override aileron and elevator.  Found
+//                              2026-11-10: a desktop pilot had no yaw at all.)
+//   [12..15] reserved, always 0
 
 // Hand-pose data layout (FsVrHandPoseDataPointer, 16 floats):
 //   A VR controller runtime (WebXR in ysflight-web) writes each grabbed
@@ -494,7 +501,8 @@ extern "C"
 	      [0] valid  [1] speed m/s  [2] altitude m  [3] heading rad
 	      [4] pitch rad  [5] bank rad  [6] vertical speed m/s  [7] throttle 0..1
 	      [8] afterburner 0/1  [9] gear 0..1  [10] brake 0/1  [11] flap 0..1
-	      [12] on ground 0/1  [13] AOA rad  [14] mach  [15] reserved */
+	      [12] on ground 0/1  [13] AOA rad  [14] mach
+	      [15] rudder -1..+1 (positive = nose left): the deflection the engine flies with, keys or VR twist */
 	float *FsVrFlightDataPointer(void);
 	/*! Aircraft identifier of air-list entry i ("" when out of range). */
 	const char *FsVrAirListIdentifier(int i);

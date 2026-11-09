@@ -829,7 +829,10 @@ void FsFlightControl::ApplyVrControlOverride(void)
 		// already share the block's sign convention -- ELEVATORUP raises
 		// ctlElevator and RUDDERLEFT raises ctlRudder -- so no flip needed.
 		ctlElevator=YsBound((double)ctlData[2],-1.0,1.0);
-		ctlRudder=YsBound((double)ctlData[3],-1.0,1.0);
+		if(0.5f<ctlData[11]) // Only a stick with a yaw axis owns the rudder (fsvr.h [11]).
+		{
+			ctlRudder=YsBound((double)ctlData[3],-1.0,1.0);
+		}
 	}
 	else if(0.5f<ctlData[8]) // Stick was grabbed before: spring to neutral.
 	{
@@ -842,7 +845,10 @@ void FsFlightControl::ApplyVrControlOverride(void)
 		// synthetic ray-to-mouse events) would steer the plane too.
 		ctlAileron=0.0;
 		ctlElevator=0.0;
-		ctlRudder=0.0;
+		if(0.5f<ctlData[11])
+		{
+			ctlRudder=0.0;
+		}
 	}
 
 	// Gated on throttleEverGrabbed (not throttleGrabbed): once the VR

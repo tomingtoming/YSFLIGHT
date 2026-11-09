@@ -6540,7 +6540,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				fd[12]=(YSTRUE==pr.IsOnGround()) ? 1.0f : 0.0f;
 				fd[13]=(float)pr.GetAOA();
 				fd[14]=(float)pr.GetMach();
-				fd[15]=0.0f;
+				fd[15]=(float)pr.GetRudder(); // ysflight-xrift: the rudder the engine really flies with (keys or VR twist), for the host/tests
 			}
 			else
 			{
