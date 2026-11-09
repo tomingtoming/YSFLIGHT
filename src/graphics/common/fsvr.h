@@ -441,6 +441,20 @@ extern "C"
 	               convention (x, y, -z of FsVehicleProperty::GetCockpitPosition)
 	      [20..23] reserved, always 0 */
 	float *FsVrPlayerPoseDataPointer(void);
+	/*! Player-aircraft VISUAL pose block (24 floats), written by the host
+	    (ysflight-xrift) and read by FsSimulation::SimDrawAirplane while
+	    FsVrIsActive: where to DRAW the player's own aircraft, when that is
+	    not where the simulation has it.  The host's avatar body and (in VR)
+	    its eye land a frame or so behind the pose it was handed; drawing the
+	    own aircraft at that same slightly older pose keeps the cockpit, the
+	    HUD and the pilot together at speed instead of juddering a frame of
+	    travel apart.  Only the main model, its ordnance and the cockpit
+	    model are moved (shadow and vapour stay on the simulated pose).
+	      [0]      enable (0/1)
+	      [1..16]  aircraft frame -> world to draw at, same convention as
+	               FsVrPlayerPoseDataPointer [1..16]
+	      [17..23] reserved, always 0 */
+	float *FsVrPlayerVisualDataPointer(void);
 
 	/*! Network-lobby automation (ysflight-xrift).  A host that does not show
 	    the engine's 2D lobby can still drive -server / -client sessions:

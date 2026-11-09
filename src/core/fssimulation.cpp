@@ -21,6 +21,9 @@
 #include "graphics/common/fsopengl.h"
 #include "graphics/common/fsblackout.h"
 #include "graphics/common/fsvr.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "fspluginmgr.h"
 #include "graphics/common/fsfontrenderer.h"
@@ -8386,6 +8389,26 @@ void FsSimulation::SimDrawAirplane(const ActualViewMode &actualViewMode,const Fs
 	seeker=NULL;
 	while((seeker=FindNextAirplane(seeker))!=NULL)
 	{
+		// ysflight-xrift: the host may ask for its own aircraft to be drawn at a
+		// slightly older pose (fsvr.h FsVrPlayerVisualDataPointer): fold
+		// visual*inverse(simulated) into the view so Draw() needs no change.
+		YsMatrix4x4 drawView=viewMat;
+		if(0!=FsVrIsActive() && IsPlayerAirplane(seeker)==YSTRUE)
+		{
+			const float *pv=FsVrPlayerVisualDataPointer();
+			if(0.0f!=pv[0])
+			{
+				double glMat[16];
+				for(int i=0; i<16; ++i)
+				{
+					glMat[i]=(double)pv[1+i];
+				}
+				YsMatrix4x4 visGl,zFlip;
+				visGl.CreateFromOpenGlCompatibleMatrix(glMat);
+				zFlip.Scale(1.0,1.0,-1.0);
+				drawView=viewMat*zFlip*visGl*zFlip*seeker->GetInverseMatrix();
+			}
+		}
 		if(seeker->IsAlive()==YSTRUE)
 		{
 			airPos=seeker->GetPosition();
@@ -8414,29 +8437,29 @@ void FsSimulation::SimDrawAirplane(const ActualViewMode &actualViewMode,const Fs
 					lodDist*=viewMagUser; // 2006/08/01
 					if((airPos-viewPoint).GetSquareLength()<lodDist*lodDist)
 					{
-						seeker->Draw(0,actualViewMode.viewMat,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
+						seeker->Draw(0,drawView,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
 					}
 					else
 					{
-						seeker->Draw(1,actualViewMode.viewMat,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
+						seeker->Draw(1,drawView,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
 						drawCoarseOrdinance=YSTRUE;
 					}
 					break;
 				case 1: // Always High Quality
-					seeker->Draw(0,actualViewMode.viewMat,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
+					seeker->Draw(0,drawView,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
 					break;
 				case 2: // Always Coarse
-					seeker->Draw(1,actualViewMode.viewMat,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
+					seeker->Draw(1,drawView,proj.GetMatrix(),viewPoint,drawFlag,currentTime);
 					break;
 				case 3: // Super-coarse
 					seeker->UntransformedCollisionShell().Draw(
-					    actualViewMode.viewMat,proj.GetMatrix(),seeker->GetPosition(),seeker->GetAttitude(),drawFlag);
+					    drawView,proj.GetMatrix(),seeker->GetPosition(),seeker->GetAttitude(),drawFlag);
 					break;
 				}
 				if(cfgPtr->drawOrdinance==YSTRUE)
 				{
 					seeker->Prop().DrawOrdinanceVisual(
-					    drawCoarseOrdinance,seeker->weaponShapeOverrideStatic,actualViewMode.viewMat,proj.GetMatrix(),drawFlag);
+					    drawCoarseOrdinance,seeker->weaponShapeOverrideStatic,drawView,proj.GetMatrix(),drawFlag);
 				}
 			}
 		}
@@ -8448,11 +8471,11 @@ void FsSimulation::SimDrawAirplane(const ActualViewMode &actualViewMode,const Fs
 		{
 			if(seeker->cockpit!=nullptr)
 			{
-				seeker->cockpit.Draw(actualViewMode.viewMat,proj.GetMatrix(),seeker->GetPosition(),seeker->GetAttitude(),drawFlag);
+				seeker->cockpit.Draw(drawView,proj.GetMatrix(),seeker->GetPosition(),seeker->GetAttitude(),drawFlag);
 			}
 			else if(cockpit!=nullptr)
 			{
-				cockpit->Draw(actualViewMode.viewMat,proj.GetMatrix(),seeker->GetPosition(),seeker->GetAttitude(),drawFlag);
+				cockpit->Draw(drawView,proj.GetMatrix(),seeker->GetPosition(),seeker->GetAttitude(),drawFlag);
 			}
 		}
 	}
@@ -13678,6 +13701,24 @@ double FsSimulation::PassedTime(void)  // <- This function must wait at least 0.
                                        //    SimulateOneStep, and FsAirplane's collision shell
                                        //    location will not be updated -> Yields unexpected crash.
 {
+#ifdef __EMSCRIPTEN__
+	// ysflight-xrift: one step per host frame, with a fractional clock.  The
+	// integer-millisecond timer truncates 16.67 ms frames to 16 or 17 ms, a
+	// +-3 % step-length error that moved the aircraft by up to a millisecond
+	// of travel back and forth each frame (18 cm at 350 kt) against a view
+	// placed by a continuous clock: visible judder in the cockpit (2026-11-10).
+	// No busy-wait either: a 90/120 Hz headset frame is shorter than 10 ms.
+	static double lastNowMs=-1.0;
+	const double nowMs=emscripten_get_now();
+	double passed=(lastNowMs<0.0) ? 0.02 : (nowMs-lastNowMs)/1000.0;
+	lastNowMs=nowMs;
+	if(passed<0.0005)
+	{
+		passed=0.0005;
+	}
+	lastTime=FsSubSecondTimer();
+	return passed;
+#else
 	unsigned long long clk=FsSubSecondTimer();
 	if(clk<lastTime)
 	{
@@ -13702,6 +13743,7 @@ double FsSimulation::PassedTime(void)  // <- This function must wait at least 0.
 	lastTime=clk;
 
 	return passed;
+#endif
 }
 
 YSRESULT FsSimulation::SetAllowedWeaponType(unsigned int allowedWeaponType)

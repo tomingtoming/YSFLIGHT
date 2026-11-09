@@ -43,6 +43,12 @@ extern "C" float *FsVrPlayerPoseDataPointer(void)
 	return fsVrPlayerPose;
 }
 
+static float fsVrPlayerVisual[24]={0.0f};
+extern "C" float *FsVrPlayerVisualDataPointer(void)
+{
+	return fsVrPlayerVisual;
+}
+
 extern "C" int FsVrIsActive(void)
 {
 	return fsVrActive;
