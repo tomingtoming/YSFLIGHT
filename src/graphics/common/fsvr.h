@@ -514,6 +514,16 @@ extern "C"
 	   there) and default to a free one. */
 	float *FsVrLobbyStpPos(int i);
 	void FsVrLobbySetStpPos(int i,float x,float y,float z);
+	/* Start position i heading (radians, the engine's YsAtt3 h): the host
+	   places its own apron furniture along the runway. */
+	float FsVrLobbyStpHeading(int i);
+	void FsVrLobbySetStpHeading(int i,float h);
+	/* Every field template the engine knows (identifiers for -server): the
+	   host offers the chooser in-world. */
+	int FsVrLobbyFieldCount(void);
+	const char *FsVrLobbyFieldName(int i);
+	void FsVrLobbySetField(int i,const char name[]);
+	void FsVrLobbySetFieldCount(int n);
 	/* Ground probe: the host writes a GL-convention (x, z) in [0],[1]; the
 	   network run loops answer the field elevation at that point in [2] and
 	   set [3] to 1 while a field is loaded.  Lets a host align its own
@@ -524,6 +534,7 @@ extern "C"
 #endif
 #define FsVrLobbyAirMax 512
 #define FsVrLobbyStpMax 128
+#define FsVrLobbyFieldMax 128
 
 /*! Wall-clock "now" in milliseconds for FsVrPerfDataPointer's EMA:
     sub-millisecond resolution under Emscripten (emscripten_get_now(), the

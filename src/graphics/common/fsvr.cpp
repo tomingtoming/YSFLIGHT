@@ -467,6 +467,40 @@ extern "C" void FsVrLobbySetStpPos(int i,float x,float y,float z)
 		fsVrLobbyStpPos[i][2]=z;
 	}
 }
+static float fsVrLobbyStpHeading[FsVrLobbyStpMax]={0.0f};
+extern "C" float FsVrLobbyStpHeading(int i)
+{
+	return (0<=i && i<FsVrLobbyStpMax) ? fsVrLobbyStpHeading[i] : 0.0f;
+}
+extern "C" void FsVrLobbySetStpHeading(int i,float h)
+{
+	if(0<=i && i<FsVrLobbyStpMax)
+	{
+		fsVrLobbyStpHeading[i]=h;
+	}
+}
+static char fsVrLobbyField[FsVrLobbyFieldMax][64]={{0}};
+static int fsVrLobbyNumField=0;
+extern "C" int FsVrLobbyFieldCount(void)
+{
+	return fsVrLobbyNumField;
+}
+extern "C" const char *FsVrLobbyFieldName(int i)
+{
+	return (0<=i && i<fsVrLobbyNumField) ? fsVrLobbyField[i] : "";
+}
+extern "C" void FsVrLobbySetField(int i,const char name[])
+{
+	if(0<=i && i<FsVrLobbyFieldMax)
+	{
+		strncpy(fsVrLobbyField[i],(NULL!=name ? name : ""),63);
+		fsVrLobbyField[i][63]=0;
+	}
+}
+extern "C" void FsVrLobbySetFieldCount(int n)
+{
+	fsVrLobbyNumField=(n<0 ? 0 : (FsVrLobbyFieldMax<n ? FsVrLobbyFieldMax : n));
+}
 extern "C" void FsVrLobbySetCounts(int nAir,int nStp)
 {
 	fsVrLobbyNumAir=(nAir<0 ? 0 : (FsVrLobbyAirMax<nAir ? FsVrLobbyAirMax : nAir));

@@ -9040,8 +9040,20 @@ static void FsVrFillLobby(FsWorld *world,const char fld[])
 			info.InterpretPosition(pos,att);
 		}
 		FsVrLobbySetStpPos(ns,(float)pos.x(),(float)pos.y(),(float)-pos.z());
+		FsVrLobbySetStpHeading(ns,(float)att.h());
 	}
 	FsVrLobbySetCounts(na,ns);
+	int nf=0;
+	for(; nf<FsVrLobbyFieldMax; ++nf)
+	{
+		const char *fn=world->GetFieldTemplateName(nf);
+		if(NULL==fn)
+		{
+			break;
+		}
+		FsVrLobbySetField(nf,fn);
+	}
+	FsVrLobbySetFieldCount(nf);
 	fsVrLobbyFilled=1;
 }
 
