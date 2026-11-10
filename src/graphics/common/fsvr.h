@@ -435,7 +435,12 @@ extern "C"
 	      [1] eyeMask  (bit0 = eye 0, bit1 = eye 1; 0 = all eyes).  Lets the
 	                   host draw one eye per Draw() call when its renderer
 	                   presents eyes separately.
-	      [2..7] reserved, always 0 */
+	      [2] pinCockpit (0/1, written by the host).  While nonzero the main
+	                   window stays in FSCOCKPITVIEW whatever view key is
+	                   pressed: the HUD texture is only rendered there.
+	      [3] viewMode (written by the engine each step): the main window's
+	                   FSVIEWMODE as an integer (FSCOCKPITVIEW = 0).
+	      [4..7] reserved, always 0 */
 	float *FsVrExternalViewDataPointer(void);
 	/*! Player-aircraft pose block (24 floats), written once per sim frame by
 	    FsSimulation::SimDrawAllScreen while VR is active, for hosts that place
@@ -481,8 +486,9 @@ extern "C"
 	    host compares it with the number it was written against and refuses
 	    to run on a mismatch instead of misreading floats.
 	      2: control [11] rudderDriven, flight [15] rudder, player-visual
-	         block, frame clock. */
-	#define FSVR_ABI_VERSION 2
+	         block, frame clock.
+	      3: external-view [2] pinCockpit, [3] viewMode. */
+	#define FSVR_ABI_VERSION 3
 	int FsVrAbiVersion(void);
 
 	/*! Network-lobby automation (ysflight-xrift).  A host that does not show

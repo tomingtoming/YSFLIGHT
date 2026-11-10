@@ -2803,6 +2803,21 @@ void FsSimulation::PrepareRenderView(const double dt)
 
 void FsSimulation::DecideAllViewPoint(const double dt)
 {
+	{
+		// ysflight-xrift (fsvr.h external-view block [2],[3]): a host whose
+		// player sits in the cockpit by the host's own camera pins the
+		// cockpit view while that player flies.  The HUD texture is rendered
+		// in FSCOCKPITVIEW only, and COCKPITVIEW (F1) cycles on through the
+		// additional and bombing views when pressed in the cockpit view, so
+		// a second press left the host's HUD glass frozen.
+		float *extView=FsVrExternalViewDataPointer();
+		if(0.0f!=extView[0] && 0.0f!=extView[2])
+		{
+			mainWindowViewmode=FSCOCKPITVIEW;
+			mainWindowAdditionalAirplaneViewId=0;
+		}
+		extView[3]=(float)((int)mainWindowViewmode);
+	}
 	SimDecideViewpointAndCheckIsInCloud(mainWindowActualViewMode,mainWindowViewmode,FsGetMainWindowDrawingAreaSize());
 	SimAutoViewChange(mainWindowActualViewMode.actualViewMode,dt);
 	for(int i=0; i<FsMaxNumSubWindow; i++)
