@@ -9064,8 +9064,28 @@ static void FsVrAnswerGroundProbe(const FsSimulation *sim)
 	if(NULL!=sim->GetField())
 	{
 		// Host (x, z) is GL-convention; the engine's z runs the other way.
-		gp[2]=(float)sim->GetFieldElevation((double)gp[0],-(double)gp[1]);
+		double elv=sim->GetFieldElevation((double)gp[0],-(double)gp[1]);
+		// A flight deck above that point is the surface to stand on: the
+		// host's avatar walks where the aircraft land.  [4] says so.
+		float onDeck=0.0f;
+		const YsVec3 pos((double)gp[0],0.0,-(double)gp[1]);
+		for(FsGround *gnd=sim->FindNextGround(NULL); NULL!=gnd; gnd=sim->FindNextGround(gnd))
+		{
+			const FsAircraftCarrierProperty *carrier=gnd->Prop().GetAircraftCarrierProperty();
+			if(NULL!=carrier && YSTRUE==gnd->IsAlive() && YSTRUE==carrier->IsOnDeck(pos))
+			{
+				YsVec3 nom;
+				const double deck=carrier->GetDeckHeightAndNormal(nom,pos);
+				if(elv<deck)
+				{
+					elv=deck;
+					onDeck=1.0f;
+				}
+			}
+		}
+		gp[2]=(float)elv;
 		gp[3]=1.0f;
+		gp[4]=onDeck;
 	}
 	else
 	{

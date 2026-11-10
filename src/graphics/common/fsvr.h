@@ -487,8 +487,9 @@ extern "C"
 	    to run on a mismatch instead of misreading floats.
 	      2: control [11] rudderDriven, flight [15] rudder, player-visual
 	         block, frame clock.
-	      3: external-view [2] pinCockpit, [3] viewMode. */
-	#define FSVR_ABI_VERSION 3
+	      3: external-view [2] pinCockpit, [3] viewMode.
+	      4: ground probe answers carrier decks, [4] onDeck. */
+	#define FSVR_ABI_VERSION 4
 	int FsVrAbiVersion(void);
 
 	/*! Network-lobby automation (ysflight-xrift).  A host that does not show
@@ -575,9 +576,11 @@ extern "C"
 	void FsVrLobbySetField(int i,const char name[]);
 	void FsVrLobbySetFieldCount(int n);
 	/* Ground probe: the host writes a GL-convention (x, z) in [0],[1]; the
-	   network run loops answer the field elevation at that point in [2] and
-	   set [3] to 1 while a field is loaded.  Lets a host align its own
-	   walkable floor with the engine's terrain. */
+	   network run loops answer the height of the surface to stand on at
+	   that point in [2] -- the field elevation, or the flight deck of a
+	   live aircraft carrier above it ([4] = 1 then) -- and set [3] to 1
+	   while a field is loaded.  Lets a host align its own walkable floor
+	   with the engine's terrain and decks. */
 	float *FsVrGroundProbeDataPointer(void);
 #ifdef __cplusplus
 }

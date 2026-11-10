@@ -528,7 +528,7 @@ extern "C" void FsVrLobbySetCounts(int nAir,int nStp)
 	fsVrLobbyNumStp=(nStp<0 ? 0 : (FsVrLobbyStpMax<nStp ? FsVrLobbyStpMax : nStp));
 }
 
-static float fsVrGroundProbe[4]={0.0f,0.0f,0.0f,0.0f};
+static float fsVrGroundProbe[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 extern "C" float *FsVrGroundProbeDataPointer(void)
 {
 	return fsVrGroundProbe;
