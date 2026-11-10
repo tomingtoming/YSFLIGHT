@@ -8,6 +8,7 @@
 #include "graphics/common/fsconsole.h"
 #include "graphics/common/fsfontrenderer.h"
 #include "graphics/common/fsopengl.h"
+#include "graphics/common/fsvr.h"
 
 
 FsScreenMessage fsConsole;
@@ -142,6 +143,7 @@ void FsScreenMessage::SetAutoFlush(YSBOOL automatic)
 
 void FsScreenMessage::Output(char str[])
 {
+	FsVrConsoleAppend(str); // ysflight-xrift: the host's own lobby shows the console
 	if(FsIsConsoleServer()!=YSTRUE)
 	{
 		YsListItem <FsScreenMessageString> *ptr;
@@ -173,6 +175,12 @@ void FsScreenMessage::Output(char str[])
 
 /* virtual */ void FsScreenMessage::Output(const wchar_t wstr[])
 {
+	{
+		// ysflight-xrift: the host's own lobby shows the console
+		YsString vrUtf8;
+		vrUtf8.EncodeUTF8<wchar_t>(wstr);
+		FsVrConsoleAppend(vrUtf8.Txt());
+	}
 	if(FsIsConsoleServer()!=YSTRUE)
 	{
 		YsListItem <FsScreenMessageString> *ptr;

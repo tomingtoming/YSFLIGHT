@@ -505,6 +505,25 @@ extern "C"
 	/*! Engine side of the above: fetch a queued request (1 = taken). */
 	int FsVrNetTakeJoinRequest(char air[],int airLen,char stp[],int stpLen,int *iff);
 	int FsVrNetTakeLeaveRequest(void);
+	/*! Lobby commands beyond join / leave, for a host that shows its own
+	    lobby instead of the engine's dialog.  The run loop executes them in
+	    any session state (standby or flying).
+	      1 loss report (who killed me)   2 kill report (whom have I killed)
+	    Server only:
+	      10 intercept mission   11 endurance mode (jet)   12 endurance (WW2)
+	      13 close air support   14 terminate mission      15 revive ground */
+	void FsVrNetRequestCommand(int cmd);
+	/*! Engine side: next queued command, 0 when none. */
+	int FsVrNetTakeCommand(void);
+	/*! The engine console (join / leave notices, chat, reports) as text:
+	    every line printed is kept in a ring.  Seq counts lines ever printed;
+	    Line(0) is the newest, Line(n) n lines older ("" past the ring).
+	    Mute brackets the key-menu printouts, which mean nothing to a host
+	    with its own lobby. */
+	void FsVrConsoleAppend(const char utf8[]);
+	void FsVrConsoleMute(int mute);
+	int FsVrConsoleSeq(void);
+	const char *FsVrConsoleLine(int back);
 	/*! Network session state block (16 floats), written at the top of every
 	    client / server run-loop step:
 	      [0] mode: 0 none, 1 server, 2 client
@@ -516,7 +535,9 @@ extern "C"
 	      [6] run state (FsClientRunLoop / FsServerRunLoop enum)
 	      [7] fatal error code
 	      [8] join requests the server rejected (client mode; counts up)
-	      [9..15] reserved, always 0 */
+	      [9] mission running (server mode): 0 none, 1 intercept,
+	          2 endurance, 3 close air support
+	      [10..15] reserved, always 0 */
 	float *FsVrNetStateDataPointer(void);
 	/*! All-aircraft pose list, written with the player pose while VR is
 	    active.  [0] = count (<= FsVrAirListMax); entry i starts at 1+i*24:

@@ -384,6 +384,82 @@ extern "C" int FsVrNetTakeLeaveRequest(void)
 	return r;
 }
 
+static int fsVrNetCmd[8]={0};
+static int fsVrNetCmdN=0;
+
+extern "C" void FsVrNetRequestCommand(int cmd)
+{
+	if(0<cmd && fsVrNetCmdN<8)
+	{
+		fsVrNetCmd[fsVrNetCmdN++]=cmd;
+	}
+}
+
+extern "C" int FsVrNetTakeCommand(void)
+{
+	if(0==fsVrNetCmdN)
+	{
+		return 0;
+	}
+	const int cmd=fsVrNetCmd[0];
+	for(int i=1; i<fsVrNetCmdN; ++i)
+	{
+		fsVrNetCmd[i-1]=fsVrNetCmd[i];
+	}
+	--fsVrNetCmdN;
+	return cmd;
+}
+
+#define FSVR_CONSOLE_LINES 64
+static char fsVrConsole[FSVR_CONSOLE_LINES][200]={{0}};
+static int fsVrConsoleSeq=0;
+static int fsVrConsoleMuted=0;
+
+extern "C" void FsVrConsoleMute(int mute)
+{
+	fsVrConsoleMuted=mute;
+}
+
+extern "C" void FsVrConsoleAppend(const char utf8[])
+{
+	if(0!=fsVrConsoleMuted || NULL==utf8 || 0==utf8[0])
+	{
+		return;
+	}
+	char *dst=fsVrConsole[fsVrConsoleSeq%FSVR_CONSOLE_LINES];
+	strncpy(dst,utf8,199);
+	dst[199]=0;
+	// Do not leave half of a UTF-8 sequence at the cut.
+	int n=(int)strlen(dst);
+	if(199==n)
+	{
+		while(0<n && 0x80==(((unsigned char)dst[n-1])&0xC0))
+		{
+			--n;
+		}
+		if(0<n && 0!=(((unsigned char)dst[n-1])&0x80))
+		{
+			--n;
+		}
+		dst[n]=0;
+	}
+	++fsVrConsoleSeq;
+}
+
+extern "C" int FsVrConsoleSeq(void)
+{
+	return fsVrConsoleSeq;
+}
+
+extern "C" const char *FsVrConsoleLine(int back)
+{
+	if(back<0 || FSVR_CONSOLE_LINES<=back || fsVrConsoleSeq<=back)
+	{
+		return "";
+	}
+	return fsVrConsole[(fsVrConsoleSeq-1-back)%FSVR_CONSOLE_LINES];
+}
+
 static float fsVrNetState[16]={0.0f};
 
 extern "C" float *FsVrNetStateDataPointer(void)
