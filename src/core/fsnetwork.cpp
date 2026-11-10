@@ -9168,7 +9168,7 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			SetTerminate(YSTRUE);
 		}
 		FsVrFieldStandbyView(mainWindowActualViewMode.viewPoint,mainWindowActualViewMode.viewAttitude,mainWindowActualViewMode.viewTargetDist,mainWindowViewmode,
-		    (FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState && 0==server.choosingMode) ? 1 : 0);
+		    (FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState) ? 1 : 0);
 		FsVrAnswerGroundProbe(this);
 		if(0==fsVrLobbyFilled && FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && NULL!=GetField())
 		{
@@ -9797,9 +9797,14 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 	// (the player stands on the field), not the 2D console.  The viewpoint
 	// was set from the host's eyes on the Run side (FsVrFieldStandbyView).
 	if(0.0f!=FsVrExternalViewDataPointer()[0] &&
-	   FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState && 0==server.choosingMode)
+	   FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState)
 	{
-		FsVrDrawStandbyBoard();
+		// The choosers (choosingMode 1/2) draw the board themselves on the
+		// Run side; the scene is drawn in every standby mode.
+		if(0==server.choosingMode || 10==server.choosingMode)
+		{
+			FsVrDrawStandbyBoard();
+		}
 		SimDrawAllScreen(YSFALSE,YSFALSE,YSFALSE);
 		return;
 	}
@@ -10541,7 +10546,7 @@ void FsSimulation::RunClientModeOneStep(class FsClientRunLoop &cliSta)
 			SetTerminate(YSTRUE);
 		}
 		FsVrFieldStandbyView(mainWindowActualViewMode.viewPoint,mainWindowActualViewMode.viewAttitude,mainWindowActualViewMode.viewTargetDist,mainWindowViewmode,
-		    (FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState && 0==cliSta.cli.choosingMode &&
+		    (FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState &&
 		     YSTRUE==cliSta.cli.fieldReady && YSTRUE==cliSta.cli.simReady) ? 1 : 0);
 		FsVrAnswerGroundProbe(this);
 		if(0==fsVrLobbyFilled && YSTRUE==cliSta.cli.fieldReady && NULL!=GetField())
@@ -11023,10 +11028,13 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 	// ysflight-xrift: see DrawInServerMode -- standby draws the field from
 	// the host's eyes once the field and simulation have arrived.
 	if(0.0f!=FsVrExternalViewDataPointer()[0] &&
-	   FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState && 0==cliSta.cli.choosingMode &&
+	   FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState &&
 	   YSTRUE==cliSta.cli.fieldReady && YSTRUE==cliSta.cli.simReady)
 	{
-		FsVrDrawStandbyBoard();
+		if(0==cliSta.cli.choosingMode || 10==cliSta.cli.choosingMode)
+		{
+			FsVrDrawStandbyBoard();
+		}
 		SimDrawAllScreen(YSFALSE,YSFALSE,YSFALSE);
 		return;
 	}
