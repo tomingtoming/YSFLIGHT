@@ -8091,6 +8091,12 @@ void FsGuiServerDialog::AutoArrangeDialog(void)
 {
 	int wid,hei;
 	FsGetWindowSize(wid,hei);
+	// ysflight-xrift: on the standby board the dialog lives in the menu
+	// texture, not in the window (FsVrDrawStandbyBoard).
+	if(0.0f!=FsVrExternalViewDataPointer()[0] && 0.0f!=FsVrMenuDataPointer()[0])
+	{
+		wid=(int)FsVrMenuDataPointer()[3];
+	}
 	if(prevWid!=wid)
 	{
 		Move(wid-dlgWid,0);
@@ -9093,6 +9099,24 @@ static void FsVrAnswerGroundProbe(const FsSimulation *sim)
 	}
 }
 
+// ysflight-xrift: the original standby screen (console + the standby
+// dialog), drawn into the host's menu texture (fsvr.h FsVrMenuDataPointer)
+// before the scene, so an external-view host can show it on a board in the
+// world while the player stands on the field.  Same order as the HUD pass:
+// off-screen first, the eye draws rebind their own target afterwards.
+static void FsVrDrawStandbyBoard(void)
+{
+	if(0.0f==FsVrMenuDataPointer()[0])
+	{
+		return;
+	}
+	FsVrBeginMenuRender();
+	FsClearScreenAndZBuffer(YsGrayScale(0.25));
+	fsConsole.Show();
+	FsVrEndMenuRender();
+	FsVrMenuDataPointer()[5]=1.0f;
+}
+
 static void FsVrFieldStandbyView(YsVec3 &viewPoint,YsAtt3 &viewAttitude,double &viewTargetDist,FsSimulation::FSVIEWMODE &mode,int standby)
 {
 	if(0.0f==FsVrExternalViewDataPointer()[0])
@@ -9775,6 +9799,7 @@ void FsSimulation::DrawInServerMode(const class FsServerRunLoop &svrSta) const
 	if(0.0f!=FsVrExternalViewDataPointer()[0] &&
 	   FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState && 0==server.choosingMode)
 	{
+		FsVrDrawStandbyBoard();
 		SimDrawAllScreen(YSFALSE,YSFALSE,YSFALSE);
 		return;
 	}
@@ -9927,6 +9952,12 @@ void FsGuiClientDialog::AutoArrangeDialog(void)
 {
 	int wid,hei;
 	FsGetWindowSize(wid,hei);
+	// ysflight-xrift: on the standby board the dialog lives in the menu
+	// texture, not in the window (FsVrDrawStandbyBoard).
+	if(0.0f!=FsVrExternalViewDataPointer()[0] && 0.0f!=FsVrMenuDataPointer()[0])
+	{
+		wid=(int)FsVrMenuDataPointer()[3];
+	}
 	if(prevWid!=wid)
 	{
 		Move(wid-dlgWid,0);
@@ -10995,6 +11026,7 @@ void FsSimulation::DrawInClientMode(const class FsClientRunLoop &cliSta) const
 	   FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState && 0==cliSta.cli.choosingMode &&
 	   YSTRUE==cliSta.cli.fieldReady && YSTRUE==cliSta.cli.simReady)
 	{
+		FsVrDrawStandbyBoard();
 		SimDrawAllScreen(YSFALSE,YSFALSE,YSFALSE);
 		return;
 	}
