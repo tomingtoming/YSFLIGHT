@@ -384,6 +384,26 @@ extern "C" int FsVrNetTakeLeaveRequest(void)
 	return r;
 }
 
+static float fsVrPreview[8]={0.0f};
+static char fsVrPreviewAir[256]="";
+
+extern "C" float *FsVrPreviewDataPointer(void)
+{
+	return fsVrPreview;
+}
+
+extern "C" void FsVrPreviewSetAircraft(const char air[])
+{
+	strncpy(fsVrPreviewAir,(NULL!=air ? air : ""),sizeof(fsVrPreviewAir)-1);
+	fsVrPreviewAir[sizeof(fsVrPreviewAir)-1]=0;
+	fsVrPreview[5]=0.0f;
+}
+
+extern "C" const char *FsVrPreviewAircraft(void)
+{
+	return fsVrPreviewAir;
+}
+
 static int fsVrNetCmd[8]={0};
 static int fsVrNetCmdN=0;
 

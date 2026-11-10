@@ -505,6 +505,16 @@ extern "C"
 	/*! Engine side of the above: fetch a queued request (1 = taken). */
 	int FsVrNetTakeJoinRequest(char air[],int airLen,char stp[],int stpLen,int *iff);
 	int FsVrNetTakeLeaveRequest(void);
+	/*! Showroom preview (ysflight-xrift): the host's lobby asks for one
+	    aircraft template to be drawn in the scene, life-size, without it
+	    being part of the session.  Block (8 floats):
+	      [0] enable (host)  [1..3] position, three.js world (host)
+	      [4] heading, radians, the engine's YsAtt3 h (host)
+	      [5] outside radius of the template in metres, 0 if unknown (engine)
+	    The template is named with FsVrPreviewSetAircraft. */
+	float *FsVrPreviewDataPointer(void);
+	void FsVrPreviewSetAircraft(const char air[]);
+	const char *FsVrPreviewAircraft(void);
 	/*! Lobby commands beyond join / leave, for a host that shows its own
 	    lobby instead of the engine's dialog.  The run loop executes them in
 	    any session state (standby or flying).

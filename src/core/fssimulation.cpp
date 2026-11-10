@@ -8496,6 +8496,26 @@ void FsSimulation::SimDrawAirplane(const ActualViewMode &actualViewMode,const Fs
 	}
 
 
+	// ysflight-xrift: the lobby's showroom preview (fsvr.h FsVrPreviewDataPointer).
+	if(0!=FsVrIsActive())
+	{
+		float *pv=FsVrPreviewDataPointer();
+		const char *airName=FsVrPreviewAircraft();
+		if(0.0f!=pv[0] && 0!=airName[0])
+		{
+			const FsAirplaneTemplate *tmpl=world->GetAirplaneTemplate(airName);
+			FsVisualDnm vis=nullptr;
+			if(nullptr!=tmpl && (vis=world->GetAirplaneVisual(airName))!=nullptr)
+			{
+				pv[5]=(float)tmpl->GetProperty()->GetOutsideRadius();
+				const YsVec3 pos(pv[1],pv[2],-pv[3]);
+				YsAtt3 att;
+				att.Set((double)pv[4],0.0,0.0);
+				vis.Draw(viewMat,proj.GetMatrix(),pos,att,drawFlag);
+			}
+		}
+	}
+
 	// Smoke and vapor must be drawn later due to trasnparency.
 	// Hence, now they are drawn in SimDrawAirplaneVaporSmoke
 }
