@@ -630,6 +630,18 @@ extern "C" float *FsVrGroundProbeDataPointer(void)
 	return fsVrGroundProbe;
 }
 
+static float fsVrGroundGrid[8+FsVrGroundGridMaxSide*FsVrGroundGridMaxSide]={0.0f};
+extern "C" float *FsVrGroundGridDataPointer(void)
+{
+	return fsVrGroundGrid;
+}
+
+static float fsVrLoadout[64]={0.0f,0.0f,100.0f};
+extern "C" float *FsVrLoadoutDataPointer(void)
+{
+	return fsVrLoadout;
+}
+
 static float fsVrFlightData[16]={0.0f};
 
 extern "C" float *FsVrFlightDataPointer(void)

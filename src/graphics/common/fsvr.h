@@ -488,8 +488,9 @@ extern "C"
 	      2: control [11] rudderDriven, flight [15] rudder, player-visual
 	         block, frame clock.
 	      3: external-view [2] pinCockpit, [3] viewMode.
-	      4: ground probe answers carrier decks, [4] onDeck. */
-	#define FSVR_ABI_VERSION 4
+	      4: ground probe answers carrier decks, [4] onDeck.
+	      5: loadout editor block, ground grid block. */
+	#define FSVR_ABI_VERSION 5
 	int FsVrAbiVersion(void);
 
 	/*! Network-lobby automation (ysflight-xrift).  A host that does not show
@@ -613,9 +614,52 @@ extern "C"
 	   while a field is loaded.  Lets a host align its own walkable floor
 	   with the engine's terrain and decks. */
 	float *FsVrGroundProbeDataPointer(void);
+	/* Ground grid: the same answer as the probe for a whole square at once,
+	   so a host can lay a heightfield under its visitor on a field with
+	   hills.  The host writes the request, the network run loops answer it
+	   on their next step:
+	     [0] request number (host; any change asks again)
+	     [1],[2] centre, GL-convention (x, z) (host)
+	     [3] spacing between samples in metres (host)
+	     [4] samples per side n, 2..FsVrGroundGridMaxSide (host)
+	     [5] request number the answer below belongs to (engine)
+	     [6] 1 while a field is loaded (engine)
+	     [7] number of samples on a live flight deck (engine)
+	     [8 ..] n*n heights, sample (ix, iz) at [8+iz*n+ix], standing at
+	            centre + ((ix, iz) - (n-1)/2) * spacing (engine) */
+	float *FsVrGroundGridDataPointer(void);
+	/* Loadout editor (ysflight-xrift): the loading tab of the original
+	   aircraft chooser for a host that shows its own lobby.  The engine
+	   keeps one weapon configuration for one aircraft template and applies
+	   the original dialog's rules (hard-point capacity, what a full pylon
+	   pushes off, the session's weapon permissions); the next
+	   FsVrNetRequestJoin for that template flies with it.  A join for any
+	   other template takes that template's default loading.
+	     FsVrLoadoutSetAircraft  start over from the template's default
+	     FsVrLoadoutChange       ask for n of a weapon (FSWEAPONTYPE), as
+	                             the dialog's number box does
+	   Both act at once and are ignored until the lobby lists are filled.
+	   Block (64 floats):
+	     [0] valid: a template is loaded in the editor (engine)
+	     [1] revision, counts every change of the numbers below (engine)
+	     [2] fuel percent the join takes, 0..100 (host; 100 at start)
+	     [3] smoke oil loaded 0/1 (host; SetAircraft writes the default)
+	     [4] smoke generators of the template (engine)
+	     [5] slots listed (engine)
+	     [8+4k ..] slot k: [0] FSWEAPONTYPE [1] loaded [2] capacity
+	               [3] step the dialog changes it by (engine)
+	   and, written with the flight data block while VR is active, what the
+	   player's aircraft really carries:
+	     [50+k] count of slot k's weapon  [60] fuel left / fuel capacity
+	     [61] smoke oil kg  [62] 1 while there is a player aircraft */
+	float *FsVrLoadoutDataPointer(void);
+	void FsVrLoadoutSetAircraft(const char air[]);
+	void FsVrLoadoutChange(int wpnType,int n);
 #ifdef __cplusplus
 }
 #endif
+#define FsVrGroundGridMaxSide 33
+#define FsVrLoadoutSlotMax 10
 #define FsVrLobbyAirMax 512
 #define FsVrLobbyStpMax 128
 #define FsVrLobbyFieldMax 128

@@ -8612,6 +8612,9 @@ YSRESULT FsSimulation::ServerJoin(
 	return YSOK;
 }
 
+// ysflight-xrift: defined with the other host-lobby helpers below.
+static void FsVrLoadoutForJoin(FsGuiChooseAircraft &chooseAirplane,const char air[]);
+
 YSRESULT FsSimulation::ServerState_StandBy(
     const double &passedTime,
     class FsSocketServer &svr,
@@ -8691,6 +8694,7 @@ YSRESULT FsSimulation::ServerState_StandBy(
 		if(0!=FsVrNetTakeJoinRequest(vrAir,256,vrStp,256,&vrIff))
 		{
 			chooseAirplane.selAir.Set(vrAir);
+			FsVrLoadoutForJoin(chooseAirplane,vrAir);
 			chooseStartPosition.selStp.Set(vrStp);
 			if(0<=vrIff && vrIff<4)
 			{
@@ -9048,6 +9052,10 @@ void FsSimulation::RunServerModeTest(const char [],const char [],FsNetConfig &)
 // ysflight-xrift: publish the chooser lists (fsvr.h FsVrLobby*) once the
 // field is loaded -- every aircraft template and the field's start positions.
 static int fsVrLobbyFilled=0;
+static FsWorld *fsVrLoadoutWorld=NULL;
+static YsString fsVrLoadoutAir;
+static YsArray <int,64> fsVrLoadoutCfg;
+static YSBOOL fsVrLoadoutAllow[4]={YSTRUE,YSTRUE,YSTRUE,YSTRUE}; // AAM, AGM, bomb, rocket
 static void FsVrFillLobby(FsWorld *world,const char fld[])
 {
 	if(0!=fsVrLobbyFilled || NULL==world)
@@ -9096,41 +9104,346 @@ static void FsVrFillLobby(FsWorld *world,const char fld[])
 	}
 	FsVrLobbySetFieldCount(nf);
 	fsVrLobbyFilled=1;
+	fsVrLoadoutWorld=world;
 }
 
-// ysflight-xrift: answer the host's ground probe (fsvr.h) from the field.
+// ysflight-xrift: the loadout editor (fsvr.h FsVrLoadoutDataPointer) -- the
+// loading tab of FsGuiChooseAircraft without the dialog.  Same rules, same
+// order of operations as FsGuiChooseAircraft::ChangeLoading / ResetOrdinance.
+static const FSWEAPONTYPE fsVrLoadoutSlot[FsVrLoadoutSlotMax]=
+{
+	FSWEAPON_AIM9,FSWEAPON_AIM9X,FSWEAPON_AIM120,FSWEAPON_AGM65,
+	FSWEAPON_BOMB,FSWEAPON_BOMB250,FSWEAPON_BOMB500HD,FSWEAPON_ROCKET,
+	FSWEAPON_FLARE,FSWEAPON_FUELTANK
+};
+
+static YSBOOL FsVrLoadoutAllowed(FSWEAPONTYPE wpnType)
+{
+	switch(wpnType)
+	{
+	case FSWEAPON_AIM9:
+	case FSWEAPON_AIM9X:
+	case FSWEAPON_AIM120:
+		return fsVrLoadoutAllow[0];
+	case FSWEAPON_AGM65:
+		return fsVrLoadoutAllow[1];
+	case FSWEAPON_BOMB:
+	case FSWEAPON_BOMB250:
+	case FSWEAPON_BOMB500HD:
+		return fsVrLoadoutAllow[2];
+	case FSWEAPON_ROCKET:
+		return fsVrLoadoutAllow[3];
+	default:
+		return YSTRUE;
+	}
+}
+
+static void FsVrLoadoutApplyLimit(YsArray <int,64> &weaponConfig)
+{
+	int i=0;
+	while(i<weaponConfig.GetN()-1)
+	{
+		if(YSTRUE!=FsVrLoadoutAllowed((FSWEAPONTYPE)weaponConfig[i]))
+		{
+			weaponConfig.Delete(i);
+			weaponConfig.Delete(i);
+		}
+		else
+		{
+			i+=2;
+		}
+	}
+}
+
+static YSBOOL FsVrLoadoutSlotCounted(FSWEAPONTYPE wpnType)
+{
+	return (FSWEAPON_FLARE==wpnType || FSWEAPON_FUELTANK==wpnType) ? YSTRUE : YSFALSE;
+}
+
+static void FsVrLoadoutPublish(const FsAirplaneProperty &prop)
+{
+	float *lo=FsVrLoadoutDataPointer();
+	for(int k=0; k<FsVrLoadoutSlotMax; ++k)
+	{
+		const FSWEAPONTYPE wpnType=fsVrLoadoutSlot[k];
+		int num,max;
+		if(YSTRUE==FsVrLoadoutSlotCounted(wpnType))
+		{
+			num=prop.GetNumSlotWeapon(wpnType);
+			max=prop.GetMaxNumSlotWeapon(wpnType);
+		}
+		else
+		{
+			num=prop.GetNumWeapon(wpnType);
+			max=prop.GetMaxNumWeapon(wpnType);
+		}
+		if(YSTRUE!=FsVrLoadoutAllowed(wpnType))
+		{
+			num=0;
+			max=0;
+		}
+		lo[8+4*k  ]=(float)wpnType;
+		lo[8+4*k+1]=(float)num;
+		lo[8+4*k+2]=(float)max;
+		// The dialog loads rockets all or nothing; the rest by the default unit.
+		lo[8+4*k+3]=(float)((FSWEAPON_ROCKET==wpnType) ? (0<max ? max : 1) : FsGetDefaultWeaponLoadingUnit(wpnType));
+	}
+	lo[4]=(float)prop.GetNumSmokeGenerator();
+	lo[5]=(float)FsVrLoadoutSlotMax;
+	lo[0]=1.0f;
+	lo[1]+=1.0f;
+}
+
+static const FsAirplaneTemplate *FsVrLoadoutTemplate(void)
+{
+	if(NULL==fsVrLoadoutWorld || 0==fsVrLoadoutAir.Strlen())
+	{
+		return NULL;
+	}
+	return fsVrLoadoutWorld->GetAirplaneTemplate(fsVrLoadoutAir);
+}
+
+// Re-seat the stored configuration on the template (limits may have changed).
+static void FsVrLoadoutReapply(void)
+{
+	const FsAirplaneTemplate *tmpl=FsVrLoadoutTemplate();
+	if(NULL!=tmpl)
+	{
+		FsVrLoadoutApplyLimit(fsVrLoadoutCfg);
+		FsAirplaneProperty prop;
+		prop=*tmpl->GetProperty();
+		prop.ApplyWeaponConfig(fsVrLoadoutCfg.GetN(),fsVrLoadoutCfg);
+		prop.GetWeaponConfig(fsVrLoadoutCfg);
+		FsVrLoadoutPublish(prop);
+	}
+}
+
+extern "C" void FsVrLoadoutSetAircraft(const char air[])
+{
+	float *lo=FsVrLoadoutDataPointer();
+	fsVrLoadoutAir.Set(NULL!=air ? air : "");
+	fsVrLoadoutCfg.Set(0,NULL);
+	const FsAirplaneTemplate *tmpl=FsVrLoadoutTemplate();
+	if(NULL==tmpl)
+	{
+		fsVrLoadoutAir.Set("");
+		lo[0]=0.0f;
+		lo[1]+=1.0f;
+		return;
+	}
+	tmpl->GetProperty()->GetWeaponConfig(fsVrLoadoutCfg);
+	lo[3]=(tmpl->GetProperty()->GetSmokeOil()>YsTolerance) ? 1.0f : 0.0f;
+	FsVrLoadoutReapply();
+}
+
+extern "C" void FsVrLoadoutChange(int wpnTypeIn,int n)
+{
+	const FsAirplaneTemplate *tmpl=FsVrLoadoutTemplate();
+	const FSWEAPONTYPE wpnType=(FSWEAPONTYPE)wpnTypeIn;
+	YSBOOL known=YSFALSE;
+	for(int k=0; k<FsVrLoadoutSlotMax; ++k)
+	{
+		if(fsVrLoadoutSlot[k]==wpnType)
+		{
+			known=YSTRUE;
+		}
+	}
+	if(NULL==tmpl || YSTRUE!=known || YSTRUE!=FsVrLoadoutAllowed(wpnType) || n<0)
+	{
+		return;
+	}
+
+	YsArray <int,64> &tmpWeaponConfig=fsVrLoadoutCfg;
+	FsAirplaneProperty prop;
+	prop=*tmpl->GetProperty();
+	prop.ApplyWeaponConfig(tmpWeaponConfig.GetN(),tmpWeaponConfig);
+	int addRemove=n-prop.GetNumSlotWeapon(wpnType);
+	if(0!=addRemove)
+	{
+		if(FSWEAPON_FUELTANK==wpnType)
+		{
+			if(0<addRemove)
+			{
+				for(int i=0; i<addRemove; i++)
+				{
+					tmpWeaponConfig.Insert(0,0x7fffffff);
+					tmpWeaponConfig.Insert(0,(int)wpnType);
+				}
+			}
+			else
+			{
+				for(int i=(int)tmpWeaponConfig.GetN()-2; i>=0 && addRemove<0; i-=2)
+				{
+					if(tmpWeaponConfig[i]==FSWEAPON_FUELTANK)
+					{
+						tmpWeaponConfig[i]=FSWEAPON_GUN;
+						tmpWeaponConfig[i+1]=0;
+						addRemove++;
+					}
+				}
+			}
+			prop.ApplyWeaponConfig(tmpWeaponConfig.GetN(),tmpWeaponConfig);
+		}
+		else if(0<addRemove)
+		{
+			const int nOrg=prop.GetNumSlotWeapon(wpnType);
+			prop.AddWeapon(wpnType,addRemove);
+			if(prop.GetNumSlotWeapon(wpnType)==nOrg) // If no increase.
+			{
+				for(int i=0; i<=tmpWeaponConfig.GetN()-2; i+=2)
+				{
+					if(tmpWeaponConfig[i]==wpnType)
+					{
+						tmpWeaponConfig[i]=FSWEAPON_GUN;
+						tmpWeaponConfig[i+1]=0;
+					}
+				}
+				tmpWeaponConfig.Insert(0,n);
+				tmpWeaponConfig.Insert(0,(int)wpnType);
+				prop.ApplyWeaponConfig(tmpWeaponConfig.GetN(),tmpWeaponConfig);
+			}
+		}
+		else
+		{
+			for(int i=(int)tmpWeaponConfig.GetN()-2; i>=0; i-=2)
+			{
+				if(tmpWeaponConfig[i]==wpnType)
+				{
+					addRemove+=tmpWeaponConfig[i+1];
+					tmpWeaponConfig[i+1]=0;
+					if(addRemove>=0)
+					{
+						tmpWeaponConfig[i+1]=addRemove;
+						break;
+					}
+				}
+			}
+			prop.ApplyWeaponConfig(tmpWeaponConfig.GetN(),tmpWeaponConfig);
+		}
+	}
+	prop.GetWeaponConfig(tmpWeaponConfig);
+	FsVrLoadoutReapply();
+}
+
+// The session's weapon permissions, as the chooser dialog holds them.
+static void FsVrLoadoutSyncLimits(const FsGuiChooseAircraft &chooseAirplane)
+{
+	const YSBOOL now[4]={chooseAirplane.allowAam,chooseAirplane.allowAgm,chooseAirplane.allowBomb,chooseAirplane.allowRocket};
+	YSBOOL changed=YSFALSE;
+	for(int i=0; i<4; ++i)
+	{
+		if(fsVrLoadoutAllow[i]!=now[i])
+		{
+			fsVrLoadoutAllow[i]=now[i];
+			changed=YSTRUE;
+		}
+	}
+	if(YSTRUE==changed)
+	{
+		FsVrLoadoutReapply();
+	}
+}
+
+// A host-driven join flies with the editor's loading: what CaptureSelection
+// leaves in the chooser dialog.
+static void FsVrLoadoutForJoin(FsGuiChooseAircraft &chooseAirplane,const char air[])
+{
+	if(NULL==fsVrLoadoutWorld)
+	{
+		return;
+	}
+	FsVrLoadoutSyncLimits(chooseAirplane);
+	const float *lo=FsVrLoadoutDataPointer();
+	if(0!=strcmp(fsVrLoadoutAir,air))
+	{
+		FsVrLoadoutSetAircraft(air);
+	}
+	const FsAirplaneTemplate *tmpl=FsVrLoadoutTemplate();
+	if(NULL==tmpl)
+	{
+		return;
+	}
+	chooseAirplane.selWeaponConfig=fsVrLoadoutCfg;
+	if(0.5f<lo[3])
+	{
+		for(int smkIdx=0; smkIdx<tmpl->GetProperty()->GetNumSmokeGenerator(); ++smkIdx)
+		{
+			const YsColor &col=tmpl->GetProperty()->GetSmokeColor(smkIdx);
+			chooseAirplane.selWeaponConfig.Append((int)FSWEAPON_SMOKE0+smkIdx);
+			chooseAirplane.selWeaponConfig.Append(((col.Ri()&255)<<16)+((col.Gi()&255)<<8)+(col.Bi()&255));
+		}
+	}
+	int fuel=(int)(lo[2]+0.5f);
+	chooseAirplane.selFuel=(fuel<0 ? 0 : (100<fuel ? 100 : fuel));
+}
+
+// ysflight-xrift: the surface to stand on at a GL-convention (x, z): the
+// field elevation, or the flight deck of a live aircraft carrier above it --
+// the host's avatar walks where the aircraft land.
+static double FsVrSurfaceHeight(const FsSimulation *sim,double x,double zGL,YSBOOL &onDeck)
+{
+	// Host (x, z) is GL-convention; the engine's z runs the other way.
+	double elv=sim->GetFieldElevation(x,-zGL);
+	onDeck=YSFALSE;
+	const YsVec3 pos(x,0.0,-zGL);
+	for(FsGround *gnd=sim->FindNextGround(NULL); NULL!=gnd; gnd=sim->FindNextGround(gnd))
+	{
+		const FsAircraftCarrierProperty *carrier=gnd->Prop().GetAircraftCarrierProperty();
+		if(NULL!=carrier && YSTRUE==gnd->IsAlive() && YSTRUE==carrier->IsOnDeck(pos))
+		{
+			YsVec3 nom;
+			const double deck=carrier->GetDeckHeightAndNormal(nom,pos);
+			if(elv<deck)
+			{
+				elv=deck;
+				onDeck=YSTRUE;
+			}
+		}
+	}
+	return elv;
+}
+
+// ysflight-xrift: answer the host's ground probe and ground grid (fsvr.h)
+// from the field.
 static void FsVrAnswerGroundProbe(const FsSimulation *sim)
 {
 	float *gp=FsVrGroundProbeDataPointer();
+	float *gg=FsVrGroundGridDataPointer();
 	if(NULL!=sim->GetField())
 	{
-		// Host (x, z) is GL-convention; the engine's z runs the other way.
-		double elv=sim->GetFieldElevation((double)gp[0],-(double)gp[1]);
-		// A flight deck above that point is the surface to stand on: the
-		// host's avatar walks where the aircraft land.  [4] says so.
-		float onDeck=0.0f;
-		const YsVec3 pos((double)gp[0],0.0,-(double)gp[1]);
-		for(FsGround *gnd=sim->FindNextGround(NULL); NULL!=gnd; gnd=sim->FindNextGround(gnd))
+		YSBOOL onDeck=YSFALSE;
+		gp[2]=(float)FsVrSurfaceHeight(sim,(double)gp[0],(double)gp[1],onDeck);
+		gp[3]=1.0f;
+		gp[4]=(YSTRUE==onDeck) ? 1.0f : 0.0f;
+
+		gg[6]=1.0f;
+		if(gg[5]!=gg[0])
 		{
-			const FsAircraftCarrierProperty *carrier=gnd->Prop().GetAircraftCarrierProperty();
-			if(NULL!=carrier && YSTRUE==gnd->IsAlive() && YSTRUE==carrier->IsOnDeck(pos))
+			int n=(int)gg[4];
+			n=(n<2 ? 2 : (FsVrGroundGridMaxSide<n ? FsVrGroundGridMaxSide : n));
+			const double half=0.5*(double)(n-1);
+			int nDeck=0;
+			for(int iz=0; iz<n; ++iz)
 			{
-				YsVec3 nom;
-				const double deck=carrier->GetDeckHeightAndNormal(nom,pos);
-				if(elv<deck)
+				for(int ix=0; ix<n; ++ix)
 				{
-					elv=deck;
-					onDeck=1.0f;
+					const double x=(double)gg[1]+((double)ix-half)*(double)gg[3];
+					const double z=(double)gg[2]+((double)iz-half)*(double)gg[3];
+					gg[8+iz*n+ix]=(float)FsVrSurfaceHeight(sim,x,z,onDeck);
+					if(YSTRUE==onDeck)
+					{
+						++nDeck;
+					}
 				}
 			}
+			gg[7]=(float)nDeck;
+			gg[5]=gg[0];
 		}
-		gp[2]=(float)elv;
-		gp[3]=1.0f;
-		gp[4]=onDeck;
 	}
 	else
 	{
 		gp[3]=0.0f;
+		gg[6]=0.0f;
 	}
 }
 
@@ -9273,6 +9586,10 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 		FsVrFieldStandbyView(mainWindowActualViewMode.viewPoint,mainWindowActualViewMode.viewAttitude,mainWindowActualViewMode.viewTargetDist,mainWindowViewmode,
 		    (FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && 0==server.serverState) ? 1 : 0);
 		FsVrAnswerGroundProbe(this);
+		if(NULL!=svrSta.chooseAirplane)
+		{
+			FsVrLoadoutSyncLimits(*svrSta.chooseAirplane);
+		}
 		if(0==fsVrLobbyFilled && FsServerRunLoop::SERVER_RUNSTATE_LOOP==svrSta.runState && NULL!=GetField())
 		{
 			YsString fld;
@@ -10303,6 +10620,7 @@ YSRESULT FsSimulation::ClientState_StandBy(
 		if(0!=FsVrNetTakeJoinRequest(vrAir,256,vrStp,256,&vrIff))
 		{
 			chooseAirplane.selAir.Set(vrAir);
+			FsVrLoadoutForJoin(chooseAirplane,vrAir);
 			chooseStartPosition.selStp.Set(vrStp);
 			if(0<=vrIff && vrIff<4)
 			{
@@ -10658,6 +10976,10 @@ void FsSimulation::RunClientModeOneStep(class FsClientRunLoop &cliSta)
 		    (FsClientRunLoop::CLIENT_RUNSTATE_LOOP==cliSta.runState && 0==cliSta.cli.clientState &&
 		     YSTRUE==cliSta.cli.fieldReady && YSTRUE==cliSta.cli.simReady) ? 1 : 0);
 		FsVrAnswerGroundProbe(this);
+		if(NULL!=cliSta.chooseAirplane)
+		{
+			FsVrLoadoutSyncLimits(*cliSta.chooseAirplane);
+		}
 		if(0==fsVrLobbyFilled && YSTRUE==cliSta.cli.fieldReady && NULL!=GetField())
 		{
 			YsString fld;
