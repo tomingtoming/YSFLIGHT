@@ -897,6 +897,7 @@ public:
 protected:
 	void SimControlByComputer(const double &dt);
 	void SimMakeUpCockpitIndicationSet(class FsCockpitIndicationSet &cockpitIndicationSet) const;
+	void FsVrPublishPoses(void) const;
 	void SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const;
 	void SimDrawScreen(const double &dt,const FsCockpitIndicationSet &cockpitIndicationSet,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker,const ActualViewMode &actualViewMode) const;
 	/*! VR single-pass-stereo HUD: draws the primary 2D flying HUD (attitude,

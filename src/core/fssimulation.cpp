@@ -2769,6 +2769,9 @@ void FsSimulation::SimulateOneStep(
 #ifdef CRASHINVESTIGATION
 	printf("S-1\n");
 #endif
+
+	// ysflight-xrift: the host places its camera and seats from these before the draw.
+	FsVrPublishPoses();
 }
 
 void FsSimulation::PrepareRenderView(const double dt)
@@ -6439,27 +6442,15 @@ static YsVec3 FsVrRotateVecByQuat(const YsVec3 &v,double qx,double qy,double qz,
 	return v+qw*t+(qv^t);
 }
 
-void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const
+// ysflight-xrift: the player's pose and the all-aircraft list for the host
+// (fsvr.h).  Published at the end of every simulation step as well as in the
+// draw: a host that places its camera and seats from these blocks BEFORE the
+// draw of the same frame used to read the previous frame's poses, while the
+// draw showed the aircraft one step further on -- the own aircraft sat a
+// frame of travel ahead of the eye and shook with every uneven frame
+// (2026-11-11).
+void FsSimulation::FsVrPublishPoses(void) const
 {
-	FsVrMarkSimDrawn();
-
-	for(auto addOnPtr : addOnList)
-	{
-		if(YSOK==addOnPtr->OnDraw(this))
-		{
-			return;
-		}
-	}
-
-
-	FsCockpitIndicationSet cockpitIndicationSet;
-	SimMakeUpCockpitIndicationSet(cockpitIndicationSet);
-
-	// VR dial live-state (fsvr.h): reuses the same FsCockpitIndicationSet /
-	// FsAirplaneProperty accessors that already drive the flat HUD's
-	// LDG/BRK/FLP/SPL readouts and DrawAmmo -- see FsVrAircraftStateDataPointer's
-	// doc comment for the block layout.  Filled only while VR is active; the
-	// web layer's dial redraws on any change in this block.
 	if(0!=FsVrIsActive())
 	{
 		// Player-aircraft pose for hosts that attach their own objects to it
@@ -6529,6 +6520,34 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			}
 			list[0]=(float)n;
 		}
+	}
+}
+
+void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker) const
+{
+	FsVrMarkSimDrawn();
+
+	for(auto addOnPtr : addOnList)
+	{
+		if(YSOK==addOnPtr->OnDraw(this))
+		{
+			return;
+		}
+	}
+
+
+	FsCockpitIndicationSet cockpitIndicationSet;
+	SimMakeUpCockpitIndicationSet(cockpitIndicationSet);
+
+	// VR dial live-state (fsvr.h): reuses the same FsCockpitIndicationSet /
+	// FsAirplaneProperty accessors that already drive the flat HUD's
+	// LDG/BRK/FLP/SPL readouts and DrawAmmo -- see FsVrAircraftStateDataPointer's
+	// doc comment for the block layout.  Filled only while VR is active; the
+	// web layer's dial redraws on any change in this block.
+	if(0!=FsVrIsActive())
+	{
+		// Poses for the host (also published right after every step: FsVrPublishPoses).
+		FsVrPublishPoses();
 
 		float *vrState=FsVrAircraftStateDataPointer();
 		const FsAirplane *playerPlane=GetPlayerAirplane();
