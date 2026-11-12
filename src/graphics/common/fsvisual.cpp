@@ -74,6 +74,41 @@ YSRESULT FsVisualDnm::GetBoundingSphere(YsVec3 &cen,double &rad,const YsVec3 &po
 	return YSERR;
 }
 
+/* static */ YSBOOL FsVisualDnm::IsSphereOutsideOfViewVolume(
+    const YsVec3 &cen,const double &rad,const YsMatrix4x4 &viewMat,const YsMatrix4x4 &projMat)
+{
+	YsVec3 pos=viewMat*cen;
+	if(YSLEFT_ZPLUS_YPLUS==YsCoordSysModel)
+	{
+		pos.SetZ(-pos.z());
+	}
+
+	const double inflatedRad=rad*1.001+0.001;
+	const double row[4][4]=
+	{
+		{projMat.v11(),projMat.v12(),projMat.v13(),projMat.v14()},
+		{projMat.v21(),projMat.v22(),projMat.v23(),projMat.v24()},
+		{projMat.v31(),projMat.v32(),projMat.v33(),projMat.v34()},
+		{projMat.v41(),projMat.v42(),projMat.v43(),projMat.v44()}
+	};
+	for(int axis=0; axis<3; ++axis)
+	{
+		for(int sign=-1; sign<=1; sign+=2)
+		{
+			// Same plane equations as YsIsBoundingBoxVisible:  +-row[axis]+row[3]
+			const double a=(double)sign*row[axis][0]+row[3][0];
+			const double b=(double)sign*row[axis][1]+row[3][1];
+			const double c=(double)sign*row[axis][2]+row[3][2];
+			const double d=(double)sign*row[axis][3]+row[3][3];
+			if(a*pos.x()+b*pos.y()+c*pos.z()+d<-inflatedRad*sqrt(a*a+b*b+c*c))
+			{
+				return YSTRUE;
+			}
+		}
+	}
+	return YSFALSE;
+}
+
 void FsVisualDnm::AddNodeBoundingBox(YsBoundingBoxMaker3 &mkBbx,const YsMatrix4x4 &tfm,Dnm::Node *nodePtr) const
 {
 	auto &nodeState=dnmState.GetState(nodePtr);

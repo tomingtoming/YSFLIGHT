@@ -56,6 +56,14 @@ public:
 	    The sphere is valid until the state of a node is changed.
 	    Returns YSERR if the visual is not loaded. */
 	YSRESULT GetBoundingSphere(YsVec3 &cen,double &rad,const YsVec3 &pos,const YsAtt3 &att) const;
+
+	/*! Returns YSTRUE if the sphere is entirely outside of one of the
+	    clipping planes of projMat.  Such a sphere cannot contain a point
+	    that passes YsIsBoundingBoxVisible with the same matrices.  The
+	    radius is inflated a little so that a sphere touching a plane is
+	    never reported as outside. */
+	static YSBOOL IsSphereOutsideOfViewVolume(
+	    const YsVec3 &cen,const double &rad,const YsMatrix4x4 &viewMat,const YsMatrix4x4 &projMat);
 private:
 	void AddNodeBoundingBox(YsBoundingBoxMaker3 &mkBbx,const YsMatrix4x4 &tfm,Dnm::Node *nodePtr) const;
 public:
