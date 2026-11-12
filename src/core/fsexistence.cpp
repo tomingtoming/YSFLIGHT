@@ -2592,6 +2592,15 @@ void FsGround::DrawShadow
 	}
 }
 
+YSRESULT FsGround::GetShadowBoundingSphere(YsVec3 &cen,double &rad) const
+{
+	if(vis!=nullptr)
+	{
+		return vis.GetBoundingSphere(cen,rad,GetPosition(),GetAttitude());
+	}
+	return YSERR;
+}
+
 YSRESULT FsGround::GetAttitudeFromRecord(YsAtt3 &/*att*/,const double &/*t*/) const
 {
 	return YSERR;

@@ -46,6 +46,53 @@ FsVisualDnm::FsVisualDnm(std::nullptr_t)
 FsVisualDnm::~FsVisualDnm()
 {
 }
+YSRESULT FsVisualDnm::GetBoundingSphere(YsVec3 &cen,double &rad,const YsVec3 &pos,const YsAtt3 &att) const
+{
+	if(dnmPtr)
+	{
+		// Bounding box in the model coordinate.  The transformation to the
+		// world coordinate is rigid, therefore the radius is unchanged.
+		YsBoundingBoxMaker3 mkBbx;
+		for(auto nodePtr : dnmPtr->GetRootNodeArray())
+		{
+			AddNodeBoundingBox(mkBbx,YsIdentity4x4(),nodePtr);
+		}
+
+		YsVec3 bbx[2];
+		mkBbx.Get(bbx[0],bbx[1]);
+
+		YsMatrix4x4 modelTfm;
+		modelTfm.Translate(pos);
+		modelTfm.RotateXZ(att.h());
+		modelTfm.RotateZY(att.p());
+		modelTfm.RotateXY(att.b());
+
+		cen=modelTfm*((bbx[0]+bbx[1])/2.0);
+		rad=(bbx[1]-bbx[0]).GetLength()/2.0;
+		return YSOK;
+	}
+	return YSERR;
+}
+
+void FsVisualDnm::AddNodeBoundingBox(YsBoundingBoxMaker3 &mkBbx,const YsMatrix4x4 &tfm,Dnm::Node *nodePtr) const
+{
+	auto &nodeState=dnmState.GetState(nodePtr);
+	const YsMatrix4x4 newTfm=tfm*nodeState.tfmCache;
+
+	YsVec3 bbx[2];
+	nodePtr->GetBoundingBox(bbx);
+	for(int i=0; i<8; ++i)
+	{
+		const YsVec3 pos(bbx[i&1].x(),bbx[(i/2)&1].y(),bbx[(i/4)&1].z());
+		mkBbx.Add(newTfm*pos);
+	}
+
+	for(auto childPtr : nodePtr->children)
+	{
+		AddNodeBoundingBox(mkBbx,newTfm,childPtr);
+	}
+}
+
 YSRESULT FsVisualDnm::Load(const wchar_t fn[])
 {
 	YsString fnUtf8;

@@ -7741,6 +7741,82 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 {
 	if(YSTRUE==FsIsShadowMapAvailable() && cfgPtr->drawShadow==YSTRUE)
 	{
+		// Returns YSTRUE if the sphere is entirely outside of one of the
+		// clipping planes of projMat.  Such a sphere cannot contain a point
+		// that passes YsIsBoundingBoxVisible with the same matrices.  The
+		// radius is inflated a little so that a sphere touching a plane is
+		// never reported as outside.
+		auto IsSphereOutsideOfViewVolume=[](
+		    const YsVec3 &cen,const double &rad,const YsMatrix4x4 &viewMat,const YsMatrix4x4 &projMat)->YSBOOL
+		{
+			YsVec3 pos=viewMat*cen;
+			if(YSLEFT_ZPLUS_YPLUS==YsCoordSysModel)
+			{
+				pos.SetZ(-pos.z());
+			}
+
+			const double inflatedRad=rad*1.001+0.001;
+			const double row[4][4]=
+			{
+				{projMat.v11(),projMat.v12(),projMat.v13(),projMat.v14()},
+				{projMat.v21(),projMat.v22(),projMat.v23(),projMat.v24()},
+				{projMat.v31(),projMat.v32(),projMat.v33(),projMat.v34()},
+				{projMat.v41(),projMat.v42(),projMat.v43(),projMat.v44()}
+			};
+			for(int axis=0; axis<3; ++axis)
+			{
+				for(int sign=-1; sign<=1; sign+=2)
+				{
+					// Same plane equations as YsIsBoundingBoxVisible:  +-row[axis]+row[3]
+					const double a=(double)sign*row[axis][0]+row[3][0];
+					const double b=(double)sign*row[axis][1]+row[3][1];
+					const double c=(double)sign*row[axis][2]+row[3][2];
+					const double d=(double)sign*row[axis][3]+row[3][3];
+					if(a*pos.x()+b*pos.y()+c*pos.z()+d<-inflatedRad*sqrt(a*a+b*b+c*c))
+					{
+						return YSTRUE;
+					}
+				}
+			}
+			return YSFALSE;
+		};
+
+		// Ground objects that cast a shadow, with a bounding sphere of each.
+		// Every ground object used to be traversed node by node for every
+		// shadow map, although a shadow map covers only a part of the field.
+		// The state of the visuals does not change while the shadow maps are
+		// rendered, so the sphere is calculated once and tested against each
+		// shadow map before the traversal.
+		class ShadowCaster
+		{
+		public:
+			const FsGround *gnd;
+			YSBOOL hasSphere;
+			YsVec3 cen;
+			double rad;
+		};
+		YsArray <ShadowCaster> gndShadowCaster;
+		{
+			FsGround *gndSeeker=NULL;
+			while((gndSeeker=FindNextGround(gndSeeker))!=NULL)
+			{
+				if(cfgPtr->shadowOfDeadAirplane!=YSTRUE && gndSeeker->IsAlive()!=YSTRUE)
+				{
+					continue;
+				}
+				if(gndSeeker->Prop().NoShadow()==YSTRUE)
+				{
+					continue;
+				}
+
+				ShadowCaster caster;
+				caster.gnd=gndSeeker;
+				caster.rad=0.0;
+				caster.hasSphere=(YSOK==gndSeeker->GetShadowBoundingSphere(caster.cen,caster.rad) ? YSTRUE : YSFALSE);
+				gndShadowCaster.Add(caster);
+			}
+		}
+
 		auto &commonTexture=FsCommonTexture::GetCommonTexture();
 		commonTexture.ReadyShadowMap();
 
@@ -7799,23 +7875,13 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 					}
 				}
 
-				FsGround *gndSeeker;
-				FsProjection prj;
-				GetProjection(prj,actualViewMode);
-
-				gndSeeker=NULL;
-				while((gndSeeker=FindNextGround(gndSeeker))!=NULL)
+				for(auto &caster : gndShadowCaster)
 				{
-					if(cfgPtr->shadowOfDeadAirplane!=YSTRUE && gndSeeker->IsAlive()!=YSTRUE)
+					if(YSTRUE==caster.hasSphere && YSTRUE==IsSphereOutsideOfViewVolume(caster.cen,caster.rad,viewMat,projMat))
 					{
 						continue;
 					}
-					if(gndSeeker->Prop().NoShadow()==YSTRUE)
-					{
-						continue;
-					}
-
-					gndSeeker->DrawShadow(viewMat,projMat,YsIdentity4x4());
+					caster.gnd->DrawShadow(viewMat,projMat,YsIdentity4x4());
 				}
 
 				if(YSTRUE==vrMultiview)

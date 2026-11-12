@@ -457,6 +457,11 @@ public:
 	virtual void DrawShadow
 	    (const YsMatrix4x4 &viewTfm,const YsMatrix4x4 &projTfm,const YsMatrix4x4 &projPlnTfm) const;
 
+	/*! Calculates a sphere in the world coordinate that encloses everything
+	    that DrawShadow may render with the current state of the visual.
+	    Returns YSERR if the object does not have a visual. */
+	YSRESULT GetShadowBoundingSphere(YsVec3 &cen,double &rad) const;
+
 	virtual YSRESULT GetAttitudeFromRecord(YsAtt3 &att,const double &t) const;
 
 	YSRESULT SetProperty(const class FsGroundProperty &prp);
