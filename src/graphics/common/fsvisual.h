@@ -47,6 +47,27 @@ public:
 		return (nullptr!=dnmPtr);
 	}
 
+	/*! Calculates a sphere that encloses the bounding boxes of all nodes
+	    of this visual placed at pos and att, with the current state of the
+	    nodes.  Hidden nodes are included, therefore the sphere is
+	    conservative.  If every point of the sphere is outside of a clipping
+	    plane, the bounding-box visibility test of every node fails against
+	    the same plane, and Draw and DrawShadow render nothing.
+	    The sphere is valid until the state of a node is changed.
+	    Returns YSERR if the visual is not loaded. */
+	YSRESULT GetBoundingSphere(YsVec3 &cen,double &rad,const YsVec3 &pos,const YsAtt3 &att) const;
+
+	/*! Returns YSTRUE if the sphere is entirely outside of one of the
+	    clipping planes of projMat.  Such a sphere cannot contain a point
+	    that passes YsIsBoundingBoxVisible with the same matrices.  The
+	    radius is inflated a little so that a sphere touching a plane is
+	    never reported as outside. */
+	static YSBOOL IsSphereOutsideOfViewVolume(
+	    const YsVec3 &cen,const double &rad,const YsMatrix4x4 &viewMat,const YsMatrix4x4 &projMat);
+private:
+	void AddNodeBoundingBox(YsBoundingBoxMaker3 &mkBbx,const YsMatrix4x4 &tfm,Dnm::Node *nodePtr) const;
+public:
+
 	YSRESULT Load(const wchar_t fn[]);
 
 	/*! Draws like YsVisualDnm::Draw(modelView,DRAWALL) but WITHOUT the
