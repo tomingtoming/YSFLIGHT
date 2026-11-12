@@ -7948,6 +7948,42 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 {
 	if(YSTRUE==FsIsShadowMapAvailable() && cfgPtr->drawShadow==YSTRUE)
 	{
+		// Ground objects that cast a shadow, with a bounding sphere of each.
+		// Every ground object used to be traversed node by node for every
+		// shadow map, although a shadow map covers only a part of the field.
+		// The state of the visuals does not change while the shadow maps are
+		// rendered, so the sphere is calculated once and tested against each
+		// shadow map before the traversal.
+		class ShadowCaster
+		{
+		public:
+			const FsGround *gnd;
+			YSBOOL hasSphere;
+			YsVec3 cen;
+			double rad;
+		};
+		YsArray <ShadowCaster> gndShadowCaster;
+		{
+			FsGround *gndSeeker=NULL;
+			while((gndSeeker=FindNextGround(gndSeeker))!=NULL)
+			{
+				if(cfgPtr->shadowOfDeadAirplane!=YSTRUE && gndSeeker->IsAlive()!=YSTRUE)
+				{
+					continue;
+				}
+				if(gndSeeker->Prop().NoShadow()==YSTRUE)
+				{
+					continue;
+				}
+
+				ShadowCaster caster;
+				caster.gnd=gndSeeker;
+				caster.rad=0.0;
+				caster.hasSphere=(YSOK==gndSeeker->GetShadowBoundingSphere(caster.cen,caster.rad) ? YSTRUE : YSFALSE);
+				gndShadowCaster.Add(caster);
+			}
+		}
+
 		auto &commonTexture=FsCommonTexture::GetCommonTexture();
 		commonTexture.ReadyShadowMap();
 
@@ -8006,23 +8042,13 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode) const
 					}
 				}
 
-				FsGround *gndSeeker;
-				FsProjection prj;
-				GetProjection(prj,actualViewMode);
-
-				gndSeeker=NULL;
-				while((gndSeeker=FindNextGround(gndSeeker))!=NULL)
+				for(auto &caster : gndShadowCaster)
 				{
-					if(cfgPtr->shadowOfDeadAirplane!=YSTRUE && gndSeeker->IsAlive()!=YSTRUE)
+					if(YSTRUE==caster.hasSphere && YSTRUE==FsVisualDnm::IsSphereOutsideOfViewVolume(caster.cen,caster.rad,viewMat,projMat))
 					{
 						continue;
 					}
-					if(gndSeeker->Prop().NoShadow()==YSTRUE)
-					{
-						continue;
-					}
-
-					gndSeeker->DrawShadow(viewMat,projMat,YsIdentity4x4());
+					caster.gnd->DrawShadow(viewMat,projMat,YsIdentity4x4());
 				}
 
 				if(YSTRUE==vrMultiview)

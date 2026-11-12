@@ -2569,17 +2569,80 @@ void FsGround::Draw
 	 unsigned int drawFlag,
 	 const double &ctime) const
 {
+	FsVisualDnm *visPtr=nullptr;
 	if(levelOfDetail>=1 && lod!=nullptr)
 	{
-		prop.SetupVisual(lod,viewPos,ctime);
-		lod.SetUpSpecialRenderingRequirement();
-		lod.Draw(viewTfm,projTfm,GetPosition(),GetAttitude(),drawFlag);
+		visPtr=&lod;
 	}
 	else if(vis!=nullptr)
 	{
-		prop.SetupVisual(vis,viewPos,ctime);
-		vis.SetUpSpecialRenderingRequirement();
-		vis.Draw(viewTfm,projTfm,GetPosition(),GetAttitude(),drawFlag);
+		visPtr=&vis;
+	}
+	if(nullptr==visPtr)
+	{
+		return;
+	}
+
+	// When transparent polygons are drawn later, this function is called
+	// twice for one view of one frame: for the opaque polygons, and then for
+	// the transparent polygons.  The second call used to set up the state of
+	// the visual again, to the same state, and both calls traversed all nodes
+	// of the visual even when the object is out of the view.
+	//
+	// The call for the transparent polygons skips the set-up when the last
+	// set-up was for the same visual, view, and time.  The state of the
+	// visual of a ground object is set up only by this function, and the
+	// simulation does not advance and the visual is not replaced between
+	// the two calls, so the state is what the set-up would make.
+	//
+	// After a set-up, a bounding sphere of the visual is tested against the
+	// view volume.  When the sphere is outside, every node fails the
+	// bounding-box test in Draw of the visual against the same clipping
+	// plane, so that nothing is rendered, and Draw is skipped.
+	YSBOOL sameAsLastSetUp=YSFALSE;
+	if(FSVISUAL_DRAWTRANSPARENT==drawFlag && drawCache.visPtr==visPtr && drawCache.ctime==ctime &&
+	   drawCache.viewPos[0]==viewPos.x() && drawCache.viewPos[1]==viewPos.y() && drawCache.viewPos[2]==viewPos.z())
+	{
+		sameAsLastSetUp=YSTRUE;
+		for(int i=0; i<16; ++i)
+		{
+			if(drawCache.viewTfm[i]!=viewTfm.GetArray()[i] || drawCache.projTfm[i]!=projTfm.GetArray()[i])
+			{
+				sameAsLastSetUp=YSFALSE;
+				break;
+			}
+		}
+	}
+
+	if(YSTRUE!=sameAsLastSetUp)
+	{
+		prop.SetupVisual(*visPtr,viewPos,ctime);
+		visPtr->SetUpSpecialRenderingRequirement();
+
+		YsVec3 cen;
+		double rad;
+		drawCache.outsideOfViewVolume=YSFALSE;
+		if(YSOK==visPtr->GetBoundingSphere(cen,rad,GetPosition(),GetAttitude()) &&
+		   YSTRUE==FsVisualDnm::IsSphereOutsideOfViewVolume(cen,rad,viewTfm,projTfm))
+		{
+			drawCache.outsideOfViewVolume=YSTRUE;
+		}
+
+		drawCache.visPtr=visPtr;
+		drawCache.ctime=ctime;
+		drawCache.viewPos[0]=viewPos.x();
+		drawCache.viewPos[1]=viewPos.y();
+		drawCache.viewPos[2]=viewPos.z();
+		for(int i=0; i<16; ++i)
+		{
+			drawCache.viewTfm[i]=viewTfm.GetArray()[i];
+			drawCache.projTfm[i]=projTfm.GetArray()[i];
+		}
+	}
+
+	if(YSTRUE!=drawCache.outsideOfViewVolume)
+	{
+		visPtr->Draw(viewTfm,projTfm,GetPosition(),GetAttitude(),drawFlag);
 	}
 }
 
@@ -2590,6 +2653,15 @@ void FsGround::DrawShadow
 	{
 		vis.DrawShadow(viewTfm,projTfm,GetPosition(),GetAttitude(),projPlnTfm);
 	}
+}
+
+YSRESULT FsGround::GetShadowBoundingSphere(YsVec3 &cen,double &rad) const
+{
+	if(vis!=nullptr)
+	{
+		return vis.GetBoundingSphere(cen,rad,GetPosition(),GetAttitude());
+	}
+	return YSERR;
 }
 
 YSRESULT FsGround::GetAttitudeFromRecord(YsAtt3 &/*att*/,const double &/*t*/) const
