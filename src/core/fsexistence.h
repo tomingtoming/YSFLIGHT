@@ -457,6 +457,18 @@ public:
 	virtual void DrawShadow
 	    (const YsMatrix4x4 &viewTfm,const YsMatrix4x4 &projTfm,const YsMatrix4x4 &projPlnTfm) const;
 
+private:
+	// What Draw found when it last set up the visual.  See FsGround::Draw.
+	class DrawCache
+	{
+	public:
+		const FsVisualDnm *visPtr=nullptr;
+		double viewTfm[16],projTfm[16],viewPos[3],ctime;
+		YSBOOL outsideOfViewVolume=YSFALSE;
+	};
+	mutable DrawCache drawCache;
+public:
+
 	/*! Calculates a sphere in the world coordinate that encloses everything
 	    that DrawShadow may render with the current state of the visual.
 	    Returns YSERR if the object does not have a visual. */
