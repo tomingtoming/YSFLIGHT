@@ -68,6 +68,55 @@ namespace SetUpMatrix
 
 		SetDirect(glMat);
 	}
+
+	// Deferred model-view matrix.
+	// SetDirect makes each of the eight shared renderers current to give it
+	// the matrix, although what is drawn next uses one or two of them.
+	// While a deferred matrix is active, the matrix is given to a renderer
+	// when the renderer is made current by ApplyDeferred.  The caller must
+	//   - call ApplyDeferred for every renderer it makes current, and
+	//   - call EndDeferred and then set the matrix of all renderers by
+	//     SetDirect before returning, so that no renderer is left without
+	//     the matrix that it would have had.
+	static bool deferredActive=false;
+	static double deferredMat[16];
+	static int nDeferredApplied=0;
+	static const YsGLSL3DRenderer *deferredApplied[8];
+
+	inline void SetUpLFDeferred(const YsVec3 &localPos,const YsAtt3 &localAtt,const YsMatrix4x4 &baseTfm)
+	{
+		YsMatrix4x4 localTfm(baseTfm);
+		localTfm.Multiply(localPos,localAtt);
+		localTfm.GetOpenGlCompatibleMatrix(deferredMat);
+
+		YsGLInvertZdv(deferredMat);
+
+		deferredActive=true;
+		nDeferredApplied=0;
+	}
+	inline void ApplyDeferred(YsGLSL3DRenderer *renderer)
+	{
+		if(true==deferredActive && NULL!=renderer)
+		{
+			for(int i=0; i<nDeferredApplied; ++i)
+			{
+				if(deferredApplied[i]==renderer)
+				{
+					return;
+				}
+			}
+			YsGLSLSet3DRendererModelViewdv(renderer,deferredMat);
+			if(nDeferredApplied<8)
+			{
+				deferredApplied[nDeferredApplied++]=renderer;
+			}
+		}
+	}
+	inline void EndDeferred(void)
+	{
+		deferredActive=false;
+		nDeferredApplied=0;
+	}
 };
 
 YSBOOL ysScnGlUseRwLightTexture=YSFALSE;
@@ -965,6 +1014,38 @@ void Ys2DDrawing::Draw(
 	{
 		YsGLSL3DRenderer *currentRenderer=NULL;
 
+		// State that has already been given to currentRenderer in this
+		// function.  Consecutive primitives mostly need the same texture,
+		// specular color and uniform color, so the state is sent only when
+		// it differs from what the renderer has.  Everything is forgotten
+		// when the renderer is switched and after a primitive that sets the
+		// state by itself (points, approach lights, and own texture).
+		YSBOOL groundTexApplied=YSFALSE;
+		YSBOOL specularSaved=YSFALSE;
+		int specularApplied=-1; // -1:Unknown  0:Off  1:On
+		GLfloat savedSpecular[3]={0.0F,0.0F,0.0F};
+		YSBOOL uniformColorApplied=YSFALSE;
+		GLfloat appliedUniformColor[4]={0.0F,0.0F,0.0F,0.0F};
+
+		// Gives back the specular color that the renderer had before this
+		// function changed it.  Must be called while the renderer is current.
+		auto RestoreSpecular=[&]()
+		{
+			if(YSTRUE==specularSaved && NULL!=currentRenderer)
+			{
+				YsGLSLSet3DRendererSpecularColor(currentRenderer,savedSpecular);
+			}
+			specularSaved=YSFALSE;
+			specularApplied=-1;
+		};
+		auto ForgetAppliedState=[&]()
+		{
+			groundTexApplied=YSFALSE;
+			specularSaved=YSFALSE;
+			specularApplied=-1;
+			uniformColorApplied=YSFALSE;
+		};
+
 		for(YSSIZE_T i=0; i<graphicCache->primitiveArray.GetN(); ++i)
 		{
 			YsGLSL3DRenderer *renderer=NULL;
@@ -1051,23 +1132,54 @@ void Ys2DDrawing::Draw(
 			{
 				if(currentRenderer!=renderer)
 				{
+					RestoreSpecular();
 					YsGLSLEndUse3DRenderer(currentRenderer);
 					YsGLSLUse3DRenderer(renderer);
+					SetUpMatrix::ApplyDeferred(renderer);
 					currentRenderer=renderer;
+					ForgetAppliedState();
 				}
 
 				const Ys2DDrawingGraphicCache::Primitive &primitive=graphicCache->primitiveArray[i];
 
+				// Points and approach lights switch to another renderer in
+				// the middle of the primitive.  Let them save, set, and
+				// restore the specular color in the way they always did.
+				const YSBOOL switchesRenderer=
+				    (primitive.objType==Ys2DDrawingElement::POINTS || primitive.objType==Ys2DDrawingElement::APPROACHLIGHT ? YSTRUE : YSFALSE);
 
-				GLfloat savedSpecular[3];
-				YsGLSLGet3DRendererSpecularColor(savedSpecular,renderer);
 				const GLfloat specularOn[3]={1.0F,1.0F,1.0F};
 				const GLfloat specularOff[3]={0.0F,0.0F,0.0F};
-				YsGLSLSet3DRendererSpecularColor(renderer,(YSTRUE==primitive.specular ? specularOn : specularOff));
-
-
-				if(/*rendererType==YSGLSL_RENDERER_TYPE_SHADED3D && */YSTRUE!=useOwnTexture)
+				GLfloat savedSpecularOfThisPrimitive[3]={0.0F,0.0F,0.0F};
+				if(YSTRUE==switchesRenderer)
 				{
+					RestoreSpecular();
+					YsGLSLGet3DRendererSpecularColor(savedSpecularOfThisPrimitive,renderer);
+					YsGLSLSet3DRendererSpecularColor(renderer,(YSTRUE==primitive.specular ? specularOn : specularOff));
+				}
+				else
+				{
+					if(YSTRUE!=specularSaved)
+					{
+						YsGLSLGet3DRendererSpecularColor(savedSpecular,renderer);
+						specularSaved=YSTRUE;
+					}
+					const int specularNeeded=(YSTRUE==primitive.specular ? 1 : 0);
+					if(specularApplied!=specularNeeded)
+					{
+						YsGLSLSet3DRendererSpecularColor(renderer,(YSTRUE==primitive.specular ? specularOn : specularOff));
+						specularApplied=specularNeeded;
+					}
+				}
+
+
+				if(/*rendererType==YSGLSL_RENDERER_TYPE_SHADED3D && */YSTRUE!=useOwnTexture && YSTRUE==groundTexApplied)
+				{
+					// The renderer already has the ground texture.
+				}
+				else if(/*rendererType==YSGLSL_RENDERER_TYPE_SHADED3D && */YSTRUE!=useOwnTexture)
+				{
+					groundTexApplied=YSTRUE;
 					glActiveTexture(GL_TEXTURE0);
 					if(nullptr!=YsScenery::commonTexManPtr && YSTRUE==YsScenery::commonTexManPtr->IsReady(YsScenery::commonGroundTexHd))
 					{
@@ -1089,6 +1201,7 @@ void Ys2DDrawing::Draw(
 					glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,primitive.filterType);
 					YsGLSLSet3DRendererTextureType(renderer,YSGLSL_TEX_TYPE_ATTRIBUTE);
 					YsGLSLSet3DRendererTextureIdentifier(renderer,0);
+					groundTexApplied=YSFALSE;
 				}
 
 				if(YSTRUE!=variColor)
@@ -1100,7 +1213,19 @@ void Ys2DDrawing::Draw(
 						(GLfloat)primitive.color.Bd(),
 						1.0f
 					};
-					YsGLSLSet3DRendererUniformColorfv(renderer,uniformColor);
+					if(YSTRUE!=uniformColorApplied ||
+					   appliedUniformColor[0]!=uniformColor[0] ||
+					   appliedUniformColor[1]!=uniformColor[1] ||
+					   appliedUniformColor[2]!=uniformColor[2] ||
+					   appliedUniformColor[3]!=uniformColor[3])
+					{
+						YsGLSLSet3DRendererUniformColorfv(renderer,uniformColor);
+						appliedUniformColor[0]=uniformColor[0];
+						appliedUniformColor[1]=uniformColor[1];
+						appliedUniformColor[2]=uniformColor[2];
+						appliedUniformColor[3]=uniformColor[3];
+						uniformColorApplied=YSTRUE;
+					}
 				}
 
 				if(rendererType==YSGLSL_RENDERER_TYPE_PLAIN3D && YSTRUE!=useOwnTexture && YSTRUE!=variColor)
@@ -1152,6 +1277,7 @@ void Ys2DDrawing::Draw(
 					renderer=YsGLSLSharedFlashByPointSprite3DRenderer();
 					YsGLSLEndUse3DRenderer(currentRenderer);
 					YsGLSLUse3DRenderer(renderer);
+					SetUpMatrix::ApplyDeferred(renderer);
 					currentRenderer=renderer;
 
 					int viewport[4];
@@ -1179,6 +1305,7 @@ void Ys2DDrawing::Draw(
 					renderer=YsGLSLSharedFlashByPointSprite3DRenderer();
 					YsGLSLEndUse3DRenderer(currentRenderer);
 					YsGLSLUse3DRenderer(renderer);
+					SetUpMatrix::ApplyDeferred(renderer);
 					currentRenderer=renderer;
 
 					int viewport[4];
@@ -1216,9 +1343,14 @@ void Ys2DDrawing::Draw(
 #endif
 				}
 
-				YsGLSLSet3DRendererSpecularColor(renderer,savedSpecular);
+				if(YSTRUE==switchesRenderer)
+				{
+					YsGLSLSet3DRendererSpecularColor(renderer,savedSpecularOfThisPrimitive);
+					ForgetAppliedState();
+				}
 			}
 		}
+		RestoreSpecular();
 		YsGLSLEndUse3DRenderer(currentRenderer);
 
 		if(drawBbx==YSTRUE)
@@ -3094,7 +3226,10 @@ void YsScenery::DrawMapVisual
 					shlTfm.RotateZY(mapDrawingInfo.mapPtr->att.p());
 					shlTfm.RotateXY(mapDrawingInfo.mapPtr->att.b());
 
-					SetUpMatrix::SetUpLF(mapDrawingInfo.mapPtr->pos,mapDrawingInfo.mapPtr->att,viewModelTfm);
+					// Only Ys2DDrawing::Draw draws until the matrix of all
+					// renderers is set by SetDirect below, and it gives the
+					// deferred matrix to every renderer it makes current.
+					SetUpMatrix::SetUpLFDeferred(mapDrawingInfo.mapPtr->pos,mapDrawingInfo.mapPtr->att,viewModelTfm);
 					mapDrawingInfo.mapPtr->GetDrawing().Draw
 					    (plgColorScale,linColorScale,pntColorScale,drawPset,YSTRUE,wire,fill,drawBbx,YSFALSE,
 					     currentTime,&shlTfm);
@@ -3102,6 +3237,7 @@ void YsScenery::DrawMapVisual
 			}
 		}
 	}
+	SetUpMatrix::EndDeferred();
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
