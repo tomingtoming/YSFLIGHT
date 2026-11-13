@@ -7333,6 +7333,31 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			}
 
 			SimDrawScreen(0,cockpitIndicationSet,demoMode,showTimer,showTimeMarker,eyeViewMode);
+
+			// ysflight-xrift: the target designators (the lock-on ring around
+			// an AAM target, the rings around other aircraft, the AGM-65 and
+			// ground-target marks), the gun lead circle and the bombing
+			// circle, per eye -- the same calls and gating as the multiview
+			// block above.  SimDrawScreen skips SimDrawForeground (where flat
+			// play draws them) while VR is active, and this per-eye path had
+			// nothing in its place, so an external-view host (XRift) never
+			// showed a lock-on.
+			if(YSTRUE!=cfgPtr->neverDrawAirplaneContainer)
+			{
+				FsFlushScene();
+				FsSetCameraPosition(eyeViewMode.viewPoint,eyeViewMode.viewAttitude,YSTRUE);
+				if(YSTRUE==NeedToDrawGameInfo(eyeViewMode))
+				{
+					SimDrawContainer(eyeViewMode);
+					SimDrawGunAim(&eyeViewMode);
+					SimDrawBombingAim(eyeViewMode,YSTRUE);
+				}
+				else if(YSTRUE==cfgPtr->drawPlayerNameAlways)
+				{
+					SimDrawContainer(eyeViewMode);
+				}
+				FsFlushScene();
+			}
 		}
 	}
 	else if(YSTRUE!=FsIsMainWindowSplit())
