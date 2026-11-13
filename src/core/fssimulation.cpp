@@ -6580,7 +6580,7 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 			{
 				fd[0]=0.0f;
 			}
-			// What the player's aircraft carries (fsvr.h FsVrLoadoutDataPointer [50..62]).
+			// What the player's aircraft carries (fsvr.h FsVrLoadoutDataPointer [50..63]).
 			float *lo=FsVrLoadoutDataPointer();
 			if(NULL!=playerPlane)
 			{
@@ -6593,6 +6593,15 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 				lo[60]=(pr.GetMaxFuelLoad()>YsTolerance) ? (float)(pr.GetFuelLeft()/pr.GetMaxFuelLoad()) : 0.0f;
 				lo[61]=(float)pr.GetSmokeOil();
 				lo[62]=1.0f;
+				if(0<pr.GetNumSmokeGenerator())
+				{
+					const YsColor &smk=pr.GetSmokeColor(0);
+					lo[63]=(float)(1+(smk.Ri()<<16)+(smk.Gi()<<8)+smk.Bi());
+				}
+				else
+				{
+					lo[63]=0.0f;
+				}
 			}
 			else
 			{

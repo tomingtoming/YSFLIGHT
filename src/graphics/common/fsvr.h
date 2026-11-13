@@ -489,8 +489,9 @@ extern "C"
 	         block, frame clock.
 	      3: external-view [2] pinCockpit, [3] viewMode.
 	      4: ground probe answers carrier decks, [4] onDeck.
-	      5: loadout editor block, ground grid block. */
-	#define FSVR_ABI_VERSION 5
+	      5: loadout editor block, ground grid block.
+	      6: loadout [6] smoke colour, [63] carried smoke colour. */
+	#define FSVR_ABI_VERSION 6
 	int FsVrAbiVersion(void);
 
 	/*! Network-lobby automation (ysflight-xrift).  A host that does not show
@@ -646,12 +647,16 @@ extern "C"
 	     [3] smoke oil loaded 0/1 (host; SetAircraft writes the default)
 	     [4] smoke generators of the template (engine)
 	     [5] slots listed (engine)
+	     [6] smoke colour the join takes (host): 0 = the template's own
+	         colour per generator, else 1+0xRRGGBB for every generator
+	         (exact in a float up to 2^24).  SetAircraft leaves it alone.
 	     [8+4k ..] slot k: [0] FSWEAPONTYPE [1] loaded [2] capacity
 	               [3] step the dialog changes it by (engine)
 	   and, written with the flight data block while VR is active, what the
 	   player's aircraft really carries:
 	     [50+k] count of slot k's weapon  [60] fuel left / fuel capacity
-	     [61] smoke oil kg  [62] 1 while there is a player aircraft */
+	     [61] smoke oil kg  [62] 1 while there is a player aircraft
+	     [63] colour of its smoke generator 0, 1+0xRRGGBB (0: none) */
 	float *FsVrLoadoutDataPointer(void);
 	void FsVrLoadoutSetAircraft(const char air[]);
 	void FsVrLoadoutChange(int wpnType,int n);

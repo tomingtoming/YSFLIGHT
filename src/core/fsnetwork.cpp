@@ -9366,9 +9366,13 @@ static void FsVrLoadoutForJoin(FsGuiChooseAircraft &chooseAirplane,const char ai
 	chooseAirplane.selWeaponConfig=fsVrLoadoutCfg;
 	if(0.5f<lo[3])
 	{
+		// lo[6]: one colour for every generator, else the template's own.
+		const int code=(int)(lo[6]+0.5f);
+		YsColor pick;
+		pick.SetIntRGB((code-1)>>16&255,(code-1)>>8&255,(code-1)&255);
 		for(int smkIdx=0; smkIdx<tmpl->GetProperty()->GetNumSmokeGenerator(); ++smkIdx)
 		{
-			const YsColor &col=tmpl->GetProperty()->GetSmokeColor(smkIdx);
+			const YsColor &col=(0<code ? pick : tmpl->GetProperty()->GetSmokeColor(smkIdx));
 			chooseAirplane.selWeaponConfig.Append((int)FSWEAPON_SMOKE0+smkIdx);
 			chooseAirplane.selWeaponConfig.Append(((col.Ri()&255)<<16)+((col.Gi()&255)<<8)+(col.Bi()&255));
 		}
