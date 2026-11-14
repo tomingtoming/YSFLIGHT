@@ -4,6 +4,8 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/heap.h>
+#include <malloc.h>
 #else
 #include <ctime>
 #endif
@@ -214,6 +216,28 @@ void FsVrPerfAccumulate(int slot,double ms)
 		return;
 	}
 	fsVrPerfData[slot]=(0.0f==fsVrPerfData[slot] ? (float)ms : fsVrPerfData[slot]*0.95f+(float)ms*0.05f);
+}
+
+// See fsvr.h's FsVrMemDataPointer doc comment for the slot layout.
+static float fsVrMemData[4]={0.0f,0.0f,0.0f,0.0f};
+
+extern "C" float *FsVrMemDataPointer(void)
+{
+	return fsVrMemData;
+}
+
+extern "C" void FsVrMemSample(void)
+{
+#ifdef __EMSCRIPTEN__
+	const float toMB=1.0f/(1024.0f*1024.0f);
+	struct mallinfo mi=mallinfo();
+	fsVrMemData[0]=(float)emscripten_get_heap_size()*toMB;
+	// mallinfo's fields are int; read them unsigned so a heap past 2GB
+	// does not report negative.
+	fsVrMemData[1]=(float)(unsigned int)mi.uordblks*toMB;
+	fsVrMemData[2]=(float)(unsigned int)mi.fordblks*toMB;
+	fsVrMemData[3]+=1.0f;
+#endif
 }
 
 static float fsVrGuiData[8]={0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};

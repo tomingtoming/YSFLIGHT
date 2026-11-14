@@ -410,6 +410,28 @@ extern "C"
 	    it. */
 	float *FsVrPerfDataPointer(void);
 
+	/*! Memory gauge block (4 floats), refreshed only by FsVrMemSample():
+	    a standalone headset browser has no devtools, and a wasm heap is
+	    invisible to performance.memory, so the shell cannot otherwise tell
+	    a leak from a heap that is merely large.
+	      [0] heap MB -- memory the process has claimed for the C heap.
+	          Under Emscripten this is the whole wasm linear memory
+	          (emscripten_get_heap_size()); it only ever grows.
+	      [1] in-use MB -- bytes currently handed out by malloc
+	          (mallinfo().uordblks). A leak shows here as a steady climb.
+	      [2] free MB -- bytes malloc holds but has not handed out
+	          (mallinfo().fordblks). Large while [1] is small = fragmentation
+	          or a past peak, not a leak.
+	      [3] number of samples taken so far (0 = never sampled, the other
+	          slots are then meaningless).
+	    All zero on non-Emscripten builds (no portable equivalent). */
+	float *FsVrMemDataPointer(void);
+
+	/*! Refreshes FsVrMemDataPointer's block. NOT free: mallinfo() walks every
+	    heap chunk, so call it from the shell every few seconds, never per
+	    frame. */
+	void FsVrMemSample(void);
+
 	/*! TEST-ONLY: forces the VR G-load blackout/redout full-field tint
 	    (FsVrDrawFullScreenTint, called from FsSimulation::SimDrawAllScreen)
 	    to a fixed colour/alpha regardless of the player's actual G, so a
