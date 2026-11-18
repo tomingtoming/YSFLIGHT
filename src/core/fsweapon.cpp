@@ -2611,6 +2611,7 @@ void FsWeaponHolder::CalculateBulletCalibrator(const FsExistence *target)
 	}
 }
 
+void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf);
 YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,FSDIEDOF diedOf,FsWeapon &wpn)
 {
 	if(&obj!=NULL && obj.GetDamage(killed,destPower,diedOf)==YSTRUE)
@@ -2626,6 +2627,7 @@ YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,
 			if(NULL!=netServer)
 			{
 				netServer->BroadcastGetDamage(&obj,wpn.firedBy,destPower,diedOf);
+				FsVrPeerReportHit(&obj,destPower,(int)diedOf);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 			}
 			if(NULL!=netClient)
 			{

@@ -9514,8 +9514,9 @@ namespace
 {
 	struct FsVrPeerMsg
 	{
-		int kind;  // 0 state, 1 remove
+		int kind;  // 0 state, 1 remove, 2 a hit on this browser's own aircraft
 		int gen;
+		int power,diedOf;
 		std::string key,ident,name;
 		std::vector <unsigned char> dat;
 	};
@@ -9523,7 +9524,15 @@ namespace
 	{
 		int gen;
 		int airKey;
+		double deadSince;  // sim time this browser first saw its copy dead while the owner still flies; <0 otherwise
 	};
+	struct FsVrPeerHit
+	{
+		int power,diedOf;
+		char key[96];
+	};
+	std::vector <FsVrPeerHit> fsVrPeerHitOut;
+	FsVrPeerHit fsVrPeerHitTaken;
 	std::vector <FsVrPeerMsg> fsVrPeerInbox;
 	std::map <std::string,FsVrPeerEntry> fsVrPeerAir;
 	// [0] int length of the state packet (0: no aircraft out)  [1] int own search key
@@ -9556,6 +9565,56 @@ extern "C" void FsVrPeerRemove(const char key[])
 		fsVrPeerInbox.push_back(msg);
 	}
 }
+// A hit this browser's weapons scored on another browser's aircraft: the
+// owner decides what it does (FsVrPeerPushHit there).  Called from
+// FsWeaponHolder::GiveDamage, which has already applied it to the local copy.
+void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf)
+{
+	if(NULL==victim || FSEX_AIRPLANE!=victim->GetType() || 64<fsVrPeerHitOut.size())
+	{
+		return;
+	}
+	const int airKey=FsExistence::GetSearchKey(victim);
+	for(auto &kv : fsVrPeerAir)
+	{
+		if(kv.second.airKey==airKey)
+		{
+			FsVrPeerHit hit;
+			hit.power=power;
+			hit.diedOf=diedOf;
+			strncpy(hit.key,kv.first.c_str(),95);
+			hit.key[95]=0;
+			fsVrPeerHitOut.push_back(hit);
+			return;
+		}
+	}
+}
+/*! Next hit to send out: int power, int diedOf, char key[96] (the victim's peer key); NULL when none. */
+extern "C" unsigned char *FsVrPeerTakeHit(void)
+{
+	if(fsVrPeerHitOut.empty())
+	{
+		return NULL;
+	}
+	fsVrPeerHitTaken=fsVrPeerHitOut.front();
+	fsVrPeerHitOut.erase(fsVrPeerHitOut.begin());
+	return (unsigned char *)&fsVrPeerHitTaken;
+}
+/*! A hit another browser scored on this browser's own aircraft (`from`: the shooter's pilot name). */
+extern "C" void FsVrPeerPushHit(const char from[],int power,int diedOf)
+{
+	if(256<fsVrPeerInbox.size())
+	{
+		return;
+	}
+	FsVrPeerMsg msg;
+	msg.kind=2;
+	msg.gen=0;
+	msg.power=power;
+	msg.diedOf=diedOf;
+	msg.name=(NULL!=from ? from : "");
+	fsVrPeerInbox.push_back(msg);
+}
 extern "C" unsigned char *FsVrPeerOwnStatePointer(void)
 {
 	return fsVrPeerOwn;
@@ -9568,6 +9627,24 @@ void FsSimulation::FsVrPeerDrain(void)
 {
 	for(auto &msg : fsVrPeerInbox)
 	{
+		if(2==msg.kind)
+		{
+			FsAirplane *pl=GetPlayerAirplane();
+			YSBOOL killed=YSFALSE;
+			if(NULL!=pl && YSTRUE==pl->IsAlive() && FSNET_REMOTE!=pl->netType &&
+			   YSTRUE==pl->GetDamage(killed,msg.power,(FSDIEDOF)msg.diedOf))
+			{
+				FsSoundSetOneTime(YSTRUE==killed ? FSSND_ONETIME_BLAST : FSSND_ONETIME_DAMAGE);
+				if(YSTRUE==killed)
+				{
+					YsString txt;
+					txt.Printf("Shot down by %s",msg.name.c_str());
+					AddTimedMessage(txt);
+					fsConsole.Printf("%s",txt.Txt());
+				}
+			}
+			continue;
+		}
 		auto found=fsVrPeerAir.find(msg.key);
 		FsAirplane *air=NULL;
 		if(fsVrPeerAir.end()!=found)
@@ -9578,6 +9655,21 @@ void FsSimulation::FsVrPeerDrain(void)
 			if(NULL!=air && (FSNET_REMOTE!=air->netType || 0!=strcmp(air->name,msg.name.c_str())) && 0==msg.kind)
 			{
 				air=NULL;
+			}
+			// This browser's copy is dead but its owner still flies (same gen):
+			// the owner decides.  A hit scored here reaches the owner in a moment
+			// and its aircraft goes too; only if the states keep coming is the
+			// copy made again.
+			if(0==msg.kind && found->second.gen==msg.gen && NULL!=air && YSTRUE!=air->IsAlive())
+			{
+				if(found->second.deadSince<0.0)
+				{
+					found->second.deadSince=currentTime;
+				}
+				if(currentTime-found->second.deadSince<2.0)
+				{
+					continue;
+				}
 			}
 			if(1==msg.kind || found->second.gen!=msg.gen || NULL==air || YSTRUE!=air->IsAlive())
 			{
@@ -9613,6 +9705,7 @@ void FsSimulation::FsVrPeerDrain(void)
 			air->netType=FSNET_REMOTE;
 			FsVrPeerEntry entry;
 			entry.gen=msg.gen;
+			entry.deadSince=-1.0;
 			entry.airKey=FsExistence::GetSearchKey(air);
 			fsVrPeerAir[msg.key]=entry;
 		}
