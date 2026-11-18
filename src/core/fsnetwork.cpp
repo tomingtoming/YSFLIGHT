@@ -9500,6 +9500,156 @@ static void FsVrFieldStandbyView(YsVec3 &viewPoint,YsAtt3 &viewAttitude,double &
 	}
 }
 
+
+// ---- ysflight-xrift trial "peer sky": no server role between browsers ----
+// Every browser runs this server loop alone.  The host page hands in the
+// aircraft states other browsers publish (FsVrPeerPushState) and reads this
+// browser's own (FsVrPeerOwnStatePointer); a relay outside the engine carries
+// them.  Each message is self-contained (type, pilot name, state), so a late
+// joiner needs no handshake: an unknown key makes the aircraft.
+#include <vector>
+#include <map>
+#include <string>
+namespace
+{
+	struct FsVrPeerMsg
+	{
+		int kind;  // 0 state, 1 remove
+		int gen;
+		std::string key,ident,name;
+		std::vector <unsigned char> dat;
+	};
+	struct FsVrPeerEntry
+	{
+		int gen;
+		int airKey;
+	};
+	std::vector <FsVrPeerMsg> fsVrPeerInbox;
+	std::map <std::string,FsVrPeerEntry> fsVrPeerAir;
+	// [0] int length of the state packet (0: no aircraft out)  [1] int own search key
+	// +8 char[64] aircraft identifier   +72 the packet (FSNETCMD_AIRPLANESTATE, long form)
+	unsigned char fsVrPeerOwn[8+64+256];
+}
+extern "C" void FsVrPeerPushState(const char key[],int gen,const char ident[],const char name[],const unsigned char dat[],int len)
+{
+	if(NULL==key || NULL==ident || NULL==name || NULL==dat || len<=0 || 256<len || 256<fsVrPeerInbox.size())
+	{
+		return;
+	}
+	FsVrPeerMsg msg;
+	msg.kind=0;
+	msg.gen=gen;
+	msg.key=key;
+	msg.ident=ident;
+	msg.name=name;
+	msg.dat.assign(dat,dat+len);
+	fsVrPeerInbox.push_back(msg);
+}
+extern "C" void FsVrPeerRemove(const char key[])
+{
+	if(NULL!=key)
+	{
+		FsVrPeerMsg msg;
+		msg.kind=1;
+		msg.gen=0;
+		msg.key=key;
+		fsVrPeerInbox.push_back(msg);
+	}
+}
+extern "C" unsigned char *FsVrPeerOwnStatePointer(void)
+{
+	return fsVrPeerOwn;
+}
+extern "C" int FsVrPeerCount(void)
+{
+	return (int)fsVrPeerAir.size();
+}
+void FsSimulation::FsVrPeerDrain(void)
+{
+	for(auto &msg : fsVrPeerInbox)
+	{
+		auto found=fsVrPeerAir.find(msg.key);
+		FsAirplane *air=NULL;
+		if(fsVrPeerAir.end()!=found)
+		{
+			air=FindAirplane(found->second.airKey);
+			// The 60 s idle clean-up deletes every aircraft: a key that no longer
+			// names this peer's aircraft is forgotten, never dereferenced.
+			if(NULL!=air && (FSNET_REMOTE!=air->netType || 0!=strcmp(air->name,msg.name.c_str())) && 0==msg.kind)
+			{
+				air=NULL;
+			}
+			if(1==msg.kind || found->second.gen!=msg.gen || NULL==air || YSTRUE!=air->IsAlive())
+			{
+				if(NULL!=air && FSNET_REMOTE==air->netType)
+				{
+					air->Prop().SetFlightState(FSDEAD,FSDIEDOF_NULL);
+					air->netAlive=YSFALSE;
+				}
+				fsVrPeerAir.erase(found);
+				air=NULL;
+			}
+		}
+		if(1==msg.kind)
+		{
+			continue;
+		}
+
+		FsNetReceivedAirplaneState state;
+		state.Decode(msg.dat.data(),currentTime);
+		if(NULL==air)
+		{
+			air=world->AddAirplane(msg.ident.c_str(),YSFALSE);
+			if(NULL==air)
+			{
+				continue;  // An aircraft this browser does not have.
+			}
+			YsAtt3 att;
+			att.Set(state.h,state.p,state.b);
+			air->name.Set(msg.name.c_str());
+			air->Prop().SetPosition(YsVec3(state.x,state.y,state.z));
+			air->Prop().SetAttitude(att);
+			air->iff=FS_IFF0;
+			air->netType=FSNET_REMOTE;
+			FsVrPeerEntry entry;
+			entry.gen=msg.gen;
+			entry.airKey=FsExistence::GetSearchKey(air);
+			fsVrPeerAir[msg.key]=entry;
+		}
+		// As FsSocketServer::ReceiveAirplaneState.
+		if(air->netPrevState.tRemote<state.tRemote && air->netPrevState.tLocal<state.tLocal)
+		{
+			if(air->netNextState.tRemote<0.0)
+			{
+				air->netNextState=state;
+			}
+			else
+			{
+				const double ratio1=(air->netNextState.tRemote-air->netPrevState.tRemote)/(air->netNextState.tLocal-air->netPrevState.tLocal);
+				const double ratio2=(state.tRemote-air->netPrevState.tRemote)/(state.tLocal-air->netPrevState.tLocal);
+				if(YsAbs(1.0-ratio2)<YsAbs(1.0-ratio1))
+				{
+					air->netNextState=state;
+				}
+			}
+		}
+	}
+	fsVrPeerInbox.clear();
+}
+void FsSimulation::FsVrPeerPublishOwn(int serverState)
+{
+	int head[2]={0,-1};
+	FsAirplane *pl=(1==serverState ? GetPlayerAirplane() : NULL);
+	if(NULL!=pl && YSTRUE==pl->IsAlive() && FSNET_REMOTE!=pl->netType)
+	{
+		head[1]=FsExistence::GetSearchKey(pl);
+		strncpy((char *)fsVrPeerOwn+8,pl->Prop().GetIdentifier(),63);
+		fsVrPeerOwn[8+63]=0;
+		head[0]=(int)pl->Prop().NetworkEncode(fsVrPeerOwn+72,head[1],currentTime,YSFALSE);
+	}
+	memcpy(fsVrPeerOwn,head,8);
+}
+
 void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 {
 	FsSocketServer &server=svrSta.svr;
@@ -9976,6 +10126,7 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			printf("N3\n");
 		#endif
 			server.CheckReceive();
+			FsVrPeerDrain();  // ysflight-xrift trial: states of other browsers, as if received
 
 		#ifdef CRASHINVESTIGATION
 			printf("N4\n");
@@ -10004,6 +10155,7 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 				}
 			}
 
+			FsVrPeerPublishOwn(server.serverState);
 
 			if(svrSta.netcfg.recordWhenServerMode!=YSTRUE &&
 			   svrSta.netcfg.freeMemoryWhenPossibleServerMode==YSTRUE &&

@@ -644,6 +644,8 @@ public:
 
 	const double &GetClock(void);
 	FsAirplane *GetPlayerAirplane(void);
+	void FsVrPeerDrain(void);            // ysflight-xrift trial (fsnetwork.cpp)
+	void FsVrPeerPublishOwn(int serverState);
 	const FsAirplane *GetPlayerAirplane(void) const;
 	FsGround *GetPlayerGround(void);
 	const FsGround *GetPlayerGround(void) const;
