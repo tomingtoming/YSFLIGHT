@@ -2612,8 +2612,14 @@ void FsWeaponHolder::CalculateBulletCalibrator(const FsExistence *target)
 }
 
 void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf);
+YSBOOL FsVrPeerIsCopy(const FsExistence *obj);
 YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,FSDIEDOF diedOf,FsWeapon &wpn)
 {
+	if(YSTRUE==FsVrPeerIsCopy(wpn.firedBy))  // ysflight-xrift trial "peer sky": a copy's rounds are for show
+	{
+		killed=YSFALSE;
+		return YSFALSE;
+	}
 	if(&obj!=NULL && obj.GetDamage(killed,destPower,diedOf)==YSTRUE)
 	{
 		if(YSTRUE==killed && NULL!=netServer)

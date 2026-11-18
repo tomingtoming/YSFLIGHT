@@ -9529,6 +9529,7 @@ namespace
 	struct FsVrPeerHit
 	{
 		int power,diedOf;
+		int gen;  // which of the owner's aircraft was hit (its search key there): a late hit must not land on the next one
 		char key[96];
 	};
 	std::vector <FsVrPeerHit> fsVrPeerHitOut;
@@ -9582,6 +9583,7 @@ void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf)
 			FsVrPeerHit hit;
 			hit.power=power;
 			hit.diedOf=diedOf;
+			hit.gen=kv.second.gen;
 			strncpy(hit.key,kv.first.c_str(),95);
 			hit.key[95]=0;
 			fsVrPeerHitOut.push_back(hit);
@@ -9589,7 +9591,28 @@ void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf)
 		}
 	}
 }
-/*! Next hit to send out: int power, int diedOf, char key[96] (the victim's peer key); NULL when none. */
+// Is this aircraft a copy of another browser's?  Its weapons are shown here
+// (the state carries the trigger) but decide nothing: what they hit is told
+// by the browser that fired them, and applied by the owner of what was hit.
+// Without this an aircraft took every round twice, once from the shooter's
+// report and once from the copy's rounds re-flown here (measured: it went
+// down with the reports thrown away).
+YSBOOL FsVrPeerIsCopy(const FsExistence *obj)
+{
+	if(NULL!=obj && FSEX_AIRPLANE==obj->GetType() && FSNET_REMOTE==obj->netType)
+	{
+		const int airKey=FsExistence::GetSearchKey(obj);
+		for(auto &kv : fsVrPeerAir)
+		{
+			if(kv.second.airKey==airKey)
+			{
+				return YSTRUE;
+			}
+		}
+	}
+	return YSFALSE;
+}
+/*! Next hit to send out: int power, int diedOf, int gen, char key[96] (the victim's peer key); NULL when none. */
 extern "C" unsigned char *FsVrPeerTakeHit(void)
 {
 	if(fsVrPeerHitOut.empty())
@@ -9601,7 +9624,7 @@ extern "C" unsigned char *FsVrPeerTakeHit(void)
 	return (unsigned char *)&fsVrPeerHitTaken;
 }
 /*! A hit another browser scored on this browser's own aircraft (`from`: the shooter's pilot name). */
-extern "C" void FsVrPeerPushHit(const char from[],int power,int diedOf)
+extern "C" void FsVrPeerPushHit(const char from[],int power,int diedOf,int gen)
 {
 	if(256<fsVrPeerInbox.size())
 	{
@@ -9609,7 +9632,7 @@ extern "C" void FsVrPeerPushHit(const char from[],int power,int diedOf)
 	}
 	FsVrPeerMsg msg;
 	msg.kind=2;
-	msg.gen=0;
+	msg.gen=gen;
 	msg.power=power;
 	msg.diedOf=diedOf;
 	msg.name=(NULL!=from ? from : "");
@@ -9632,6 +9655,7 @@ void FsSimulation::FsVrPeerDrain(void)
 			FsAirplane *pl=GetPlayerAirplane();
 			YSBOOL killed=YSFALSE;
 			if(NULL!=pl && YSTRUE==pl->IsAlive() && FSNET_REMOTE!=pl->netType &&
+			   FsExistence::GetSearchKey(pl)==msg.gen &&
 			   YSTRUE==pl->GetDamage(killed,msg.power,(FSDIEDOF)msg.diedOf))
 			{
 				FsSoundSetOneTime(YSTRUE==killed ? FSSND_ONETIME_BLAST : FSSND_ONETIME_DAMAGE);
