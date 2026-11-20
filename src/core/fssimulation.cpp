@@ -3615,8 +3615,10 @@ void FsSimulation::GenerateTank
 	}
 }
 
+void FsVrPeerNoteRevive(void);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 void FsSimulation::ReviveGround(void)
 {
+	FsVrPeerNoteRevive();
 	FsGround *gnd;
 	gnd=NULL;
 	while((gnd=FindNextGround(gnd))!=NULL)

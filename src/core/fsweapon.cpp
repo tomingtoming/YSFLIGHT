@@ -2613,9 +2613,15 @@ void FsWeaponHolder::CalculateBulletCalibrator(const FsExistence *target)
 
 void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf);
 YSBOOL FsVrPeerIsCopy(const FsExistence *obj);
+void FsVrPeerReportGroundHit(const FsExistence *victim,int power);
 YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,FSDIEDOF diedOf,FsWeapon &wpn)
 {
-	if(YSTRUE==FsVrPeerIsCopy(wpn.firedBy))  // ysflight-xrift trial "peer sky": a copy's rounds are for show
+	// ysflight-xrift trial "peer sky": a copy's rounds are for show, and a copy is
+	// hurt only by this browser's own aircraft (every browser has the field's guns:
+	// were theirs to count, an aircraft would take each burst once per browser).
+	if(YSTRUE==FsVrPeerIsCopy(wpn.firedBy) ||
+	   (YSTRUE==FsVrPeerIsCopy(&obj) &&
+	    (NULL==wpn.firedBy || FSEX_AIRPLANE!=wpn.firedBy->GetType() || FSNET_LOCAL!=wpn.firedBy->netType)))
 	{
 		killed=YSFALSE;
 		return YSFALSE;
@@ -2634,6 +2640,10 @@ YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,
 			{
 				netServer->BroadcastGetDamage(&obj,wpn.firedBy,destPower,diedOf);
 				FsVrPeerReportHit(&obj,destPower,(int)diedOf);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
+				if(FSEX_AIRPLANE==wpn.firedBy->GetType())
+				{
+					FsVrPeerReportGroundHit(&obj,destPower);
+				}
 			}
 			if(NULL!=netClient)
 			{
