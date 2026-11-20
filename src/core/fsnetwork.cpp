@@ -9537,8 +9537,10 @@ namespace
 	std::vector <FsVrPeerMsg> fsVrPeerInbox;
 	std::map <std::string,FsVrPeerEntry> fsVrPeerAir;
 	// [0] int length of the state packet (0: no aircraft out)  [1] int own search key
-	// +8 char[64] aircraft identifier   +72 the packet (FSNETCMD_AIRPLANESTATE, long form)
-	unsigned char fsVrPeerOwn[8+64+256];
+	// [2] int quiet: 1 while the aircraft stands still and holds its fire (the page then sends it rarely)
+	// +12 char[64] aircraft identifier   +76 the packet (FSNETCMD_AIRPLANESTATE: the short form
+	// when the aircraft's load fits it, else the long one; Decode reads both)
+	unsigned char fsVrPeerOwn[12+64+256];
 }
 extern "C" void FsVrPeerPushState(const char key[],int gen,const char ident[],const char name[],const unsigned char dat[],int len)
 {
@@ -9755,16 +9757,21 @@ void FsSimulation::FsVrPeerDrain(void)
 }
 void FsSimulation::FsVrPeerPublishOwn(int serverState)
 {
-	int head[2]={0,-1};
+	int head[3]={0,-1,0};
 	FsAirplane *pl=(1==serverState ? GetPlayerAirplane() : NULL);
 	if(NULL!=pl && YSTRUE==pl->IsAlive() && FSNET_REMOTE!=pl->netType)
 	{
 		head[1]=FsExistence::GetSearchKey(pl);
-		strncpy((char *)fsVrPeerOwn+8,pl->Prop().GetIdentifier(),63);
-		fsVrPeerOwn[8+63]=0;
-		head[0]=(int)pl->Prop().NetworkEncode(fsVrPeerOwn+72,head[1],currentTime,YSFALSE);
+		strncpy((char *)fsVrPeerOwn+12,pl->Prop().GetIdentifier(),63);
+		fsVrPeerOwn[12+63]=0;
+		head[0]=(int)pl->Prop().NetworkEncode(fsVrPeerOwn+76,head[1],currentTime,YSTRUE);
+		if(0>=head[0])
+		{
+			head[0]=(int)pl->Prop().NetworkEncode(fsVrPeerOwn+76,head[1],currentTime,YSFALSE);
+		}
+		head[2]=(pl->Prop().GetVelocity()<0.1 && YSTRUE!=pl->Prop().IsFiringGun()) ? 1 : 0;
 	}
-	memcpy(fsVrPeerOwn,head,8);
+	memcpy(fsVrPeerOwn,head,12);
 }
 
 void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
