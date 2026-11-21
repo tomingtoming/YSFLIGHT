@@ -2612,6 +2612,7 @@ void FsWeaponHolder::CalculateBulletCalibrator(const FsExistence *target)
 }
 
 YSBOOL FsVrPeerIsOwned(const FsExistence *obj);
+YSBOOL FsVrPeerShieldsField(const FsExistence *victim,const FsExistence *firedBy);
 YSBOOL FsVrPeerIsCopy(const FsExistence *obj);
 void FsVrPeerReportGroundHit(const FsExistence *victim,int power);
 void FsVrPeerReportHit(const FsExistence *victim,const FsExistence *firedBy,int power,int diedOf);
@@ -2621,7 +2622,8 @@ YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,
 	// hurt only by what this browser owns (every browser has the field's guns:
 	// were theirs to count, an aircraft would take each burst once per browser).
 	if(YSTRUE==FsVrPeerIsCopy(wpn.firedBy) ||
-	   (YSTRUE==FsVrPeerIsCopy(&obj) && YSTRUE!=FsVrPeerIsOwned(wpn.firedBy)))
+	   (YSTRUE==FsVrPeerIsCopy(&obj) && YSTRUE!=FsVrPeerIsOwned(wpn.firedBy)) ||
+	   YSTRUE==FsVrPeerShieldsField(&obj,wpn.firedBy))
 	{
 		killed=YSFALSE;
 		return YSFALSE;

@@ -9600,7 +9600,39 @@ namespace
 	std::vector <FsVrPeerLaunchIn> fsVrPeerLaunchInbox;
 	int fsVrPeerLaunchShown=0;  // launches of other browsers replayed here
 
+	// The mission this browser runs (it is the referee of what it started): the lobby
+	// command that starts it (10 intercept, 11 / 12 endurance jet / WW2, 13 close air
+	// support; 0 none) and the seconds left.  Another browser may hand one over.
+	float fsVrPeerMission[2]={0.0f,0.0f};
+	int fsVrPeerAdoptCmd=0;
+	double fsVrPeerAdoptSec=0.0;
+	// Something this browser owns was brought down by another browser's hit: for the score.
+	struct FsVrPeerKill
+	{
+		int cls,gen;
+		char victim[64];
+		char by[64];
+	};
+	std::vector <FsVrPeerKill> fsVrPeerKillOut;
+	FsVrPeerKill fsVrPeerKillTaken;
+	std::vector <std::string> fsVrPeerSayInbox;
+	void FsVrPeerNoteKill(int cls,int gen,const char victim[],const char by[])
+	{
+		if(64<fsVrPeerKillOut.size())
+		{
+			return;
+		}
+		FsVrPeerKill k;
+		memset(&k,0,sizeof(k));
+		k.cls=cls;
+		k.gen=gen;
+		strncpy(k.victim,victim,63);
+		strncpy(k.by,by,63);
+		fsVrPeerKillOut.push_back(k);
+	}
+
 	FsSimulation *fsVrPeerSim=NULL;
+	int fsVrPeerEnabled=0;  // the host page links this engine to other browsers (FsVrPeerEnable)
 	std::map <int,int> fsVrPeerGndDamage;  // ground index -> damage this browser knows it has taken
 	struct FsVrPeerGndHit
 	{
@@ -9689,6 +9721,24 @@ YSBOOL FsVrPeerIsCopy(const FsExistence *obj)
 		}
 	}
 	return YSFALSE;
+}
+YSBOOL FsVrPeerIsOwned(const FsExistence *obj);
+/*! The host page says this engine is one of several sharing a sky (or no longer). */
+extern "C" void FsVrPeerEnable(int on)
+{
+	fsVrPeerEnabled=on;
+}
+// The field's ground objects are everyone's, and only what a browser owns may change
+// them (it reports what it did, and all apply the same).  The field's own guns, which
+// every browser has and aims by itself, must not: a stray round would destroy an object
+// in one browser only.
+YSBOOL FsVrPeerShieldsField(const FsExistence *victim,const FsExistence *firedBy)
+{
+	if(0==fsVrPeerEnabled || NULL==victim || FSEX_GROUND!=victim->GetType())
+	{
+		return YSFALSE;
+	}
+	return (YSTRUE==FsVrPeerIsFieldGround((const FsGround *)victim) && YSTRUE!=FsVrPeerIsOwned(firedBy)) ? YSTRUE : YSFALSE;
 }
 // Does this browser own it (see the top of this block)?
 YSBOOL FsVrPeerIsOwned(const FsExistence *obj)
@@ -9837,6 +9887,36 @@ extern "C" void FsVrPeerPushLaunch(const unsigned char raw[],const char byKey[],
 extern "C" int FsVrPeerLaunchShown(void)
 {
 	return fsVrPeerLaunchShown;
+}
+/*! float[2]: the mission this browser runs (the lobby command that starts it, 0 none) and its seconds left. */
+extern "C" float *FsVrPeerMissionPointer(void)
+{
+	return fsVrPeerMission;
+}
+/*! Take over a mission whose browser left: started here when none runs, with `seconds` left. */
+extern "C" void FsVrPeerMissionAdopt(int cmd,double seconds)
+{
+	fsVrPeerAdoptCmd=cmd;
+	fsVrPeerAdoptSec=seconds;
+}
+/*! Next kill to tell (FsVrPeerKill: cls, gen, victim[64], by[64]); NULL when none. */
+extern "C" unsigned char *FsVrPeerTakeKill(void)
+{
+	if(fsVrPeerKillOut.empty())
+	{
+		return NULL;
+	}
+	fsVrPeerKillTaken=fsVrPeerKillOut.front();
+	fsVrPeerKillOut.erase(fsVrPeerKillOut.begin());
+	return (unsigned char *)&fsVrPeerKillTaken;
+}
+/*! A line for the console and the screen (what happened on another browser). */
+extern "C" void FsVrPeerSay(const char text[])
+{
+	if(NULL!=text && fsVrPeerSayInbox.size()<64)
+	{
+		fsVrPeerSayInbox.push_back(text);
+	}
 }
 /*! Where things are, for the tests: which 0 = the n-th ground unit this browser owns, 1 = the n-th copy of
     another browser's ground unit; float[3], NULL past the end. */
@@ -10024,6 +10104,12 @@ extern "C" int FsVrPeerOwnDropped(void)
 void FsSimulation::FsVrPeerDrain(void)
 {
 	fsVrPeerSim=this;
+	for(auto &line : fsVrPeerSayInbox)
+	{
+		AddTimedMessage(line.c_str());
+		fsConsole.Printf("%s",line.c_str());
+	}
+	fsVrPeerSayInbox.clear();
 	for(auto &msg : fsVrPeerInbox)
 	{
 		if(3==msg.kind || 4==msg.kind)
@@ -10059,6 +10145,10 @@ void FsSimulation::FsVrPeerDrain(void)
 				if(NULL!=own && YSTRUE==FsVrPeerIsOwned(own))
 				{
 					own->GetDamage(killed,msg.power,(FSDIEDOF)msg.diedOf);
+					if(YSTRUE==killed)
+					{
+						FsVrPeerNoteKill(1,msg.gen,own->Prop().GetIdentifier(),msg.name.c_str());
+					}
 				}
 				continue;
 			}
@@ -10071,6 +10161,10 @@ void FsSimulation::FsVrPeerDrain(void)
 				if(pl==GetPlayerAirplane())
 				{
 					FsSoundSetOneTime(YSTRUE==killed ? FSSND_ONETIME_BLAST : FSSND_ONETIME_DAMAGE);
+				}
+				if(YSTRUE==killed)
+				{
+					FsVrPeerNoteKill(0,msg.gen,(0!=pl->name[0] ? (const char *)pl->name : pl->Prop().GetIdentifier()),msg.name.c_str());
 				}
 				if(YSTRUE==killed && pl==GetPlayerAirplane())
 				{
@@ -10436,6 +10530,54 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 				server.BroadcastReviveGround();
 				fsConsole.Printf("Ground objects are revived.");
 				break;
+			}
+			// ysflight-xrift trial "peer sky": a mission handed over by a browser that left, and what runs here now.
+			if(0!=fsVrPeerAdoptCmd)
+			{
+				const int cmd=fsVrPeerAdoptCmd;
+				fsVrPeerAdoptCmd=0;
+				if(server.baseDefenseModeRemainingTime<YsTolerance && server.enduranceModeRemainingTime<YsTolerance &&
+				   server.closeAirSupportMissionRemainingTime<YsTolerance && 1.0<fsVrPeerAdoptSec)
+				{
+					switch(cmd)
+					{
+					case 10:
+						server.baseDefenseModeRemainingTime=fsVrPeerAdoptSec;
+						break;
+					case 11:
+					case 12:
+						server.enduranceModeRemainingTime=fsVrPeerAdoptSec;
+						server.enduranceModeJet=(11==cmd ? YSTRUE : YSFALSE);
+						server.enduranceModeWw2=(12==cmd ? YSTRUE : YSFALSE);
+						server.gLimit=4.0;
+						server.nEnduranceModeEnemyMax=0;
+						break;
+					case 13:
+						server.closeAirSupportMissionRemainingTime=fsVrPeerAdoptSec;
+						break;
+					}
+					fsConsole.Printf("**** MISSION TAKEN OVER (%d s left) ****",(int)fsVrPeerAdoptSec);
+				}
+			}
+			if(server.baseDefenseModeRemainingTime>=YsTolerance)
+			{
+				fsVrPeerMission[0]=10.0f;
+				fsVrPeerMission[1]=(float)server.baseDefenseModeRemainingTime;
+			}
+			else if(server.enduranceModeRemainingTime>=YsTolerance)
+			{
+				fsVrPeerMission[0]=(YSTRUE==server.enduranceModeWw2 ? 12.0f : 11.0f);
+				fsVrPeerMission[1]=(float)server.enduranceModeRemainingTime;
+			}
+			else if(server.closeAirSupportMissionRemainingTime>=YsTolerance)
+			{
+				fsVrPeerMission[0]=13.0f;
+				fsVrPeerMission[1]=(float)server.closeAirSupportMissionRemainingTime;
+			}
+			else
+			{
+				fsVrPeerMission[0]=0.0f;
+				fsVrPeerMission[1]=0.0f;
 			}
 			// Which mission runs, for the kiosk: 0 none, 1 intercept, 2 endurance, 3 close air support.
 			ns[9]=(server.baseDefenseModeRemainingTime>=YsTolerance) ? 1.0f :
