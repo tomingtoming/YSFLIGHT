@@ -2611,17 +2611,17 @@ void FsWeaponHolder::CalculateBulletCalibrator(const FsExistence *target)
 	}
 }
 
-void FsVrPeerReportHit(const FsExistence *victim,int power,int diedOf);
+YSBOOL FsVrPeerIsOwned(const FsExistence *obj);
 YSBOOL FsVrPeerIsCopy(const FsExistence *obj);
 void FsVrPeerReportGroundHit(const FsExistence *victim,int power);
+void FsVrPeerReportHit(const FsExistence *victim,const FsExistence *firedBy,int power,int diedOf);
 YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,FSDIEDOF diedOf,FsWeapon &wpn)
 {
 	// ysflight-xrift trial "peer sky": a copy's rounds are for show, and a copy is
-	// hurt only by this browser's own aircraft (every browser has the field's guns:
+	// hurt only by what this browser owns (every browser has the field's guns:
 	// were theirs to count, an aircraft would take each burst once per browser).
 	if(YSTRUE==FsVrPeerIsCopy(wpn.firedBy) ||
-	   (YSTRUE==FsVrPeerIsCopy(&obj) &&
-	    (NULL==wpn.firedBy || FSEX_AIRPLANE!=wpn.firedBy->GetType() || FSNET_LOCAL!=wpn.firedBy->netType)))
+	   (YSTRUE==FsVrPeerIsCopy(&obj) && YSTRUE!=FsVrPeerIsOwned(wpn.firedBy)))
 	{
 		killed=YSFALSE;
 		return YSFALSE;
@@ -2639,9 +2639,9 @@ YSBOOL FsWeaponHolder::GiveDamage(YSBOOL &killed,FsExistence &obj,int destPower,
 			if(NULL!=netServer)
 			{
 				netServer->BroadcastGetDamage(&obj,wpn.firedBy,destPower,diedOf);
-				FsVrPeerReportHit(&obj,destPower,(int)diedOf);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
-				if(FSEX_AIRPLANE==wpn.firedBy->GetType())
+				if(YSTRUE==FsVrPeerIsOwned(wpn.firedBy))  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 				{
+					FsVrPeerReportHit(&obj,wpn.firedBy,destPower,(int)diedOf);
 					FsVrPeerReportGroundHit(&obj,destPower);
 				}
 			}
@@ -2749,6 +2749,7 @@ YSRESULT FsWeaponHolder::RefreshOrdinanceByWeaponRecord(const double &currentTim
 	}
 }
 
+void FsVrPeerNoteLaunch(const FsWeaponRecord &rec);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 int FsWeaponHolder::Fire
     (const double &ctime,
      YsVec3 &pos,
@@ -2861,6 +2862,7 @@ int FsWeaponHolder::Fire
 			if(transmit==YSTRUE && netServer!=NULL)
 			{
 				netServer->BroadcastMissileLaunch(rec);
+				FsVrPeerNoteLaunch(rec);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 			}
 			if(transmit==YSTRUE && netClient!=NULL)
 			{
@@ -2921,6 +2923,7 @@ int FsWeaponHolder::Bomb(
 			if(transmit==YSTRUE && netServer!=NULL)
 			{
 				netServer->BroadcastMissileLaunch(rec);
+				FsVrPeerNoteLaunch(rec);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 			}
 			if(transmit==YSTRUE && netClient!=NULL)
 			{
@@ -2999,6 +3002,7 @@ int FsWeaponHolder::DispenseFlare(
 			if(transmit==YSTRUE && netServer!=NULL)
 			{
 				netServer->BroadcastMissileLaunch(rec);
+				FsVrPeerNoteLaunch(rec);  // ysflight-xrift trial "peer sky" (fsnetwork.cpp)
 			}
 			if(transmit==YSTRUE && netClient!=NULL)
 			{
